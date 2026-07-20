@@ -1377,9 +1377,7 @@ export default function App() {
                       left: Math.min(marquee.start, marquee.current),
                       width: Math.abs(marquee.current - marquee.start),
                     }}
-                  >
-                    <span>选择范围</span>
-                  </div>
+                  />
                 )}
               </div>
 

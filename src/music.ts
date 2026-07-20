@@ -84,7 +84,35 @@ export function romanNumeral(
   chord: Pick<ChordAnnotation, 'root' | 'quality'>,
 ) {
   try {
-    return Progression.toRomanNumerals(keyRoot, [tonalChordName(chord)])[0] ?? '—'
+    const raw = Progression.toRomanNumerals(keyRoot, [tonalChordName(chord)])[0] ?? ''
+    const degree = raw.match(/^([b#]*)([IViv]+)/)
+    if (!degree) return raw || '—'
+    const minorDegree = ['min', 'm7', 'mMaj7', 'm6', 'm9', 'dim', 'dim7', 'm7b5']
+      .includes(chord.quality)
+    const suffix: Record<ChordQuality, string> = {
+      maj: '',
+      min: '',
+      '5': '5',
+      '7': '7',
+      maj7: 'maj7',
+      m7: '7',
+      mMaj7: 'maj7',
+      sus2: 'sus2',
+      sus4: 'sus4',
+      dim: '°',
+      dim7: '°7',
+      m7b5: 'ø7',
+      aug: '+',
+      add9: 'add9',
+      '6': '6',
+      m6: '6',
+      '9': '9',
+      maj9: 'maj9',
+      m9: '9',
+    }
+    const accidental = degree[1]
+    const numeral = minorDegree ? degree[2].toLowerCase() : degree[2].toUpperCase()
+    return `${accidental}${numeral}${suffix[chord.quality]}`
   } catch {
     const keyChroma = Note.chroma(keyRoot)
     const chordChroma = Note.chroma(chord.root)

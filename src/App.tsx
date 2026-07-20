@@ -65,7 +65,6 @@ import {
 } from './music'
 import type {
   ChordAnnotation,
-  ChordQuality,
   EditorTool,
   GridDivision,
   TempoMarker,
@@ -303,6 +302,7 @@ export default function App() {
   const timelineWidth = Math.max(viewportWidth, analysis.duration * pixelsPerSecond)
 
   const commitAnnotations = useCallback((next: ChordAnnotation[]) => {
+    setSaveState('saving')
     setHistory((current) => ({
       past: [...current.past.slice(-39), chords],
       future: [],
@@ -350,6 +350,7 @@ export default function App() {
       past: history.past.slice(0, -1),
       future: [chords, ...history.future.slice(0, 39)],
     })
+    setSaveState('saving')
     setChords(previous)
   }, [chords, history])
 
@@ -360,6 +361,7 @@ export default function App() {
       past: [...history.past, chords],
       future: history.future.slice(1),
     })
+    setSaveState('saving')
     setChords(next)
   }, [chords, history])
 
@@ -422,7 +424,6 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    setSaveState('saving')
     window.clearTimeout(saveTimer.current)
     saveTimer.current = window.setTimeout(() => {
       localStorage.setItem('chordtag-annotations', JSON.stringify(chords))
@@ -506,6 +507,7 @@ export default function App() {
     const onMove = (moveEvent: PointerEvent) => {
       const delta = (moveEvent.clientX - pointerStart) / pixelsPerSecond
       changed = changed || Math.abs(delta) > 0.005
+      if (changed) setSaveState('saving')
       setChords((current) => current.map((item) => {
         if (item.id !== chord.id) return item
         if (mode === 'move') {
@@ -606,7 +608,13 @@ export default function App() {
       musicalContext: { tonic: keyRoot, mode: keyMode },
       timeline: {
         firstBeatOffset,
-        tempoMap: tempoMarkers.map(({ id: _id, ...marker }) => marker),
+        tempoMap: tempoMarkers.map((marker) => ({
+          startTime: marker.startTime,
+          startBar: marker.startBar,
+          bpm: marker.bpm,
+          numerator: marker.numerator,
+          denominator: marker.denominator,
+        })),
       },
       annotations: chords.map((chord) => ({
         id: chord.id,

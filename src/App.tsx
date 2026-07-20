@@ -6,15 +6,12 @@ import {
   ChevronDown,
   CircleHelp,
   Download,
-  FileAudio,
   Focus,
   Gauge,
   Grid2X2,
   Hand,
   Headphones,
   Keyboard,
-  Layers3,
-  MessageCircle,
   Minus,
   MousePointer2,
   Music2,
@@ -43,6 +40,7 @@ import {
   type WheelEvent as ReactWheelEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -90,13 +88,7 @@ type HistoryState = {
   future: ChordAnnotation[][]
 }
 
-type WorkspacePage = 'audio' | 'structure' | 'chords' | 'notes' | 'settings'
-
-interface TimelineNote {
-  id: string
-  time: number
-  text: string
-}
+type WorkspacePage = 'chords' | 'settings'
 
 interface MarqueeSelection {
   start: number
@@ -389,7 +381,7 @@ function ToolButton({
 }
 
 export default function App() {
-  const [activePage, setActivePage] = useState<WorkspacePage>('audio')
+  const [activePage, setActivePage] = useState<WorkspacePage>('chords')
   const [analysis, setAnalysis] = useState<AudioAnalysis>(EMPTY_ANALYSIS)
   const [hasAudio, setHasAudio] = useState(false)
   const [waveformMode, setWaveformMode] = useState<WaveformMode>('waveform')
@@ -429,23 +421,13 @@ export default function App() {
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [importProgress, setImportProgress] = useState<number | null>(null)
   const [saveState, setSaveState] = useState<'saved' | 'saving'>('saved')
-  const [notes, setNotes] = useState<TimelineNote[]>(() => {
-    const saved = localStorage.getItem('chordtag-notes')
-    if (!saved) return []
-    try {
-      const parsed = JSON.parse(saved) as TimelineNote[]
-      return parsed.length === 1 && parsed[0]?.id === 'note-1' ? [] : parsed
-    } catch {
-      return []
-    }
-  })
-  const [noteDraft, setNoteDraft] = useState('')
   const scrollerRef = useRef<HTMLDivElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const playbackAnchor = useRef({ startedAt: 0, from: 0 })
   const saveTimer = useRef<number | undefined>(undefined)
   const zoomRef = useRef(pixelsPerSecond)
+  const scrollLeftRef = useRef(0)
 
   const grid = useMemo(
     () => buildGrid(tempoMarkers, analysis.duration, gridDivision),
@@ -665,13 +647,20 @@ export default function App() {
     audio.playbackRate = playbackRate
   }, [playbackRate, volume])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (activePage !== 'chords' || !hasAudio) return
     const scroller = scrollerRef.current
     if (!scroller) return
+    scroller.scrollLeft = scrollLeftRef.current
+    let frame = 0
     const observer = new ResizeObserver(([entry]) => setViewportWidth(entry.contentRect.width))
     observer.observe(scroller)
-    return () => observer.disconnect()
-  }, [])
+    frame = requestAnimationFrame(() => setViewportWidth(scroller.clientWidth))
+    return () => {
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
+  }, [activePage, hasAudio])
 
   useEffect(() => {
     window.clearTimeout(saveTimer.current)
@@ -681,10 +670,6 @@ export default function App() {
     }, 450)
     return () => window.clearTimeout(saveTimer.current)
   }, [chords])
-
-  useEffect(() => {
-    localStorage.setItem('chordtag-notes', JSON.stringify(notes))
-  }, [notes])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1007,6 +992,7 @@ export default function App() {
       setActivePage('chords')
       setCurrentTime(0)
       setScrollLeft(0)
+      scrollLeftRef.current = 0
       if (scrollerRef.current) scrollerRef.current.scrollLeft = 0
     } finally {
       setImportProgress(null)
@@ -1061,7 +1047,6 @@ export default function App() {
         <div className="brand-lockup">
           <div className="brand-mark"><AudioLines size={21} /></div>
           <strong>ChordTag</strong>
-          <span className="standard-badge">STANDARD 1.0</span>
         </div>
         <div className="project-heading">
           <span>{hasAudio ? analysis.name.replace(/\.[^/.]+$/, '') : '未命名项目'}</span>
@@ -1082,10 +1067,7 @@ export default function App() {
           <span>导入</span>
         </button>
         <div className="rail-nav">
-          <button className={activePage === 'audio' ? 'active' : ''} onClick={() => setActivePage('audio')}><FileAudio size={21} /><span>音频</span></button>
-          <button className={activePage === 'structure' ? 'active' : ''} onClick={() => setActivePage('structure')}><Layers3 size={21} /><span>结构</span></button>
           <button className={activePage === 'chords' ? 'active' : ''} onClick={() => setActivePage('chords')}><Music2 size={21} /><span>和弦</span></button>
-          <button className={activePage === 'notes' ? 'active' : ''} onClick={() => setActivePage('notes')}><MessageCircle size={21} /><span>备注</span></button>
         </div>
         <button className={`rail-bottom ${activePage === 'settings' ? 'active' : ''}`} onClick={() => setActivePage('settings')}><Settings2 size={21} /><span>设置</span></button>
       </aside>
@@ -1242,7 +1224,10 @@ export default function App() {
           <div
             className={`timeline-scroll ${tool === 'pan' ? 'pan-mode' : ''}`}
             onPointerDown={beginPan}
-            onScroll={(event) => setScrollLeft(event.currentTarget.scrollLeft)}
+            onScroll={(event) => {
+              scrollLeftRef.current = event.currentTarget.scrollLeft
+              setScrollLeft(event.currentTarget.scrollLeft)
+            }}
             onWheel={onWheel}
             ref={scrollerRef}
           >
@@ -1407,9 +1392,7 @@ export default function App() {
                   />
                 ))}
               </div>
-              <div className="global-playhead" style={{ left: currentTime * pixelsPerSecond }}>
-                <span />
-              </div>
+              <div className="global-playhead" style={{ left: currentTime * pixelsPerSecond }} />
             </div>
           </div>
 
@@ -1476,131 +1459,14 @@ export default function App() {
             initial={{ opacity: 0, y: 8 }}
             key={activePage}
           >
-            {!hasAudio && ['chords', 'structure', 'notes'].includes(activePage) && (
+            {!hasAudio && activePage === 'chords' && (
               <div className="empty-project-state">
                 <div className="empty-project-icon"><AudioLines size={32} /></div>
                 <span className="eyebrow">Empty project</span>
                 <h1>先导入一段音频</h1>
-                <p>项目目前没有默认音频或和弦。导入后即可使用时间轴、结构和备注功能。</p>
+                <p>项目目前没有默认音频或和弦。导入后即可开始时间轴标注。</p>
                 <button className="filled-button" onClick={() => fileInputRef.current?.click()}><Upload size={17} />选择音频文件</button>
               </div>
-            )}
-
-            {activePage === 'audio' && (
-              <>
-                <div className="feature-page-header">
-                  <div className="page-icon"><FileAudio size={24} /></div>
-                  <div><span className="eyebrow">Audio workspace</span><h1>音频与分析</h1><p>管理源音频，并检查当前振幅与频谱分析结果。</p></div>
-                  <button className="filled-button" onClick={() => fileInputRef.current?.click()}><Upload size={17} />{hasAudio ? '替换音频' : '导入音频'}</button>
-                </div>
-                <div className="feature-grid">
-                  {hasAudio ? (
-                    <>
-                  <article className="feature-card source-card">
-                    <span className="eyebrow">当前音频</span>
-                    <div className="audio-file-row">
-                      <div className="audio-file-icon"><AudioLines size={25} /></div>
-                      <div><strong>{analysis.name}</strong><span>{formatTime(analysis.duration, true)} · 本地处理</span></div>
-                      <BadgeCheck size={18} />
-                    </div>
-                    <div className="mini-waveform" aria-label="音频波形概览">
-                      {analysis.peaks.filter((_, index) => index % Math.max(1, Math.floor(analysis.peaks.length / 90)) === 0).slice(0, 90).map((peak, index) => (
-                        <span key={index} style={{ height: `${Math.max(8, peak * 100)}%` }} />
-                      ))}
-                    </div>
-                    <button className="outlined-wide" onClick={() => { setActivePage('chords'); seek(0) }}><Play size={16} />打开时间轴</button>
-                  </article>
-                  <article className="feature-card">
-                    <span className="eyebrow">分析数据</span>
-                    <h2>浏览器内完成，无需上传</h2>
-                    <div className="metric-grid">
-                      <div><strong>{analysis.peaks.length.toLocaleString()}</strong><span>振幅采样点</span></div>
-                      <div><strong>{analysis.spectrogram.length}</strong><span>频谱时间窗</span></div>
-                      <div><strong>{analysis.spectrogram[0]?.length ?? 0}</strong><span>对数频带</span></div>
-                      <div><strong>100%</strong><span>本地隐私</span></div>
-                    </div>
-                    <div className="view-switch wide">
-                      <button className={waveformMode === 'waveform' ? 'active' : ''} onClick={() => setWaveformMode('waveform')}><Waves size={16} />振幅</button>
-                      <button className={waveformMode === 'spectrogram' ? 'active' : ''} onClick={() => setWaveformMode('spectrogram')}><Activity size={16} />频谱</button>
-                    </div>
-                  </article>
-                    </>
-                  ) : (
-                    <article className="feature-card empty-audio-card">
-                      <div className="empty-audio-visual">
-                        <AudioLines size={34} />
-                        <span />
-                        <span />
-                        <span />
-                      </div>
-                      <span className="eyebrow">尚未导入</span>
-                      <h2>从本机选择音频开始</h2>
-                      <p>支持浏览器可解码的 WAV、MP3、M4A、AAC 和 OGG。文件只在本机分析，不会上传。</p>
-                      <button className="filled-button" onClick={() => fileInputRef.current?.click()}><Upload size={17} />选择音频文件</button>
-                    </article>
-                  )}
-                </div>
-              </>
-            )}
-
-            {activePage === 'structure' && hasAudio && (
-              <>
-                <div className="feature-page-header">
-                  <div className="page-icon"><Layers3 size={24} /></div>
-                  <div><span className="eyebrow">Musical structure</span><h1>节拍与结构</h1><p>首拍移动时，后续所有小节和速度切换点都会同步重算。</p></div>
-                  <button className="filled-button" onClick={() => setActivePage('chords')}><Music2 size={17} />查看时间轴</button>
-                </div>
-                <article className="feature-card first-beat-card">
-                  <div className="card-heading"><div><span className="eyebrow">全局锚点</span><h2>第一小节 · 第一拍</h2></div><strong>{firstBeatOffset.toFixed(3)} s</strong></div>
-                  <div className="anchor-slider">
-                    <span>0:00</span>
-                    <input aria-label="拖动首拍时间" max={analysis.duration} min="0" step="0.001" type="range" value={firstBeatOffset} onChange={(event) => applyFirstBeatOffset(Number(event.target.value))} />
-                    <span>{formatTime(analysis.duration)}</span>
-                  </div>
-                  <p>拖动这个锚点不会移动音频；它会整体平移后续拍点、小节线与速度段。</p>
-                </article>
-                <div className="tempo-page-list">
-                  {tempoMarkers.map((marker, index) => (
-                    <article className="tempo-page-item" key={marker.id}>
-                      <div className="tempo-index">{index + 1}</div>
-                      <div className="tempo-position"><strong>第 {marker.startBar} 小节</strong><span>{formatTime(marker.startTime, true)}</span></div>
-                      <label><span>BPM</span><input max="300" min="20" type="number" value={marker.bpm} onChange={(event) => updateTempoMarker(marker.id, { bpm: Number(event.target.value) })} /></label>
-                      <label><span>拍数</span><input max="16" min="1" type="number" value={marker.numerator} onChange={(event) => updateTempoMarker(marker.id, { numerator: Number(event.target.value) })} /></label>
-                      <label>
-                        <span>拍值</span>
-                        <MaterialSelect ariaLabel={`第 ${marker.startBar} 小节拍值`} onChange={(value) => updateTempoMarker(marker.id, { denominator: Number(value) })} options={['2', '4', '8', '16'].map((value) => ({ value, label: value }))} value={String(marker.denominator)} />
-                      </label>
-                    </article>
-                  ))}
-                </div>
-              </>
-            )}
-
-            {activePage === 'notes' && hasAudio && (
-              <>
-                <div className="feature-page-header">
-                  <div className="page-icon"><MessageCircle size={24} /></div>
-                  <div><span className="eyebrow">Timeline notes</span><h1>时间备注</h1><p>为当前播放位置记录听感、演奏或校对信息。</p></div>
-                </div>
-                <article className="feature-card note-composer">
-                  <div className="note-time"><span>记录位置</span><strong>{formatTime(currentTime, true)}</strong></div>
-                  <textarea placeholder="写下这一刻的音乐备注…" value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} />
-                  <button className="filled-button" disabled={!noteDraft.trim()} onClick={() => {
-                    if (!noteDraft.trim()) return
-                    setNotes((current) => [...current, { id: crypto.randomUUID(), time: currentTime, text: noteDraft.trim() }].sort((a, b) => a.time - b.time))
-                    setNoteDraft('')
-                  }}><Plus size={16} />添加备注</button>
-                </article>
-                <div className="notes-list">
-                  {notes.map((note) => (
-                    <article className="note-item" key={note.id}>
-                      <button className="note-timestamp" onClick={() => { seek(note.time); setActivePage('chords') }}><Play size={12} />{formatTime(note.time, true)}</button>
-                      <p>{note.text}</p>
-                      <button className="icon-button" aria-label="删除备注" onClick={() => setNotes((current) => current.filter((item) => item.id !== note.id))}><Trash2 size={15} /></button>
-                    </article>
-                  ))}
-                </div>
-              </>
             )}
 
             {activePage === 'settings' && (
@@ -1622,7 +1488,7 @@ export default function App() {
                     <MaterialSelect ariaLabel="设置网格" onChange={(value) => setGridDivision(Number(value) as GridDivision)} options={[{ value: '1', label: '1/4 拍' }, { value: '2', label: '1/8 拍' }, { value: '4', label: '1/16 拍' }, { value: '8', label: '1/32 拍' }]} value={String(gridDivision)} />
                   </article>
                   <article className="feature-card setting-card">
-                    <div><strong>ChordTag Standard 1.0</strong><span>包含速度图、调性、和弦与置信度</span></div>
+                    <div><strong>标注 JSON</strong><span>包含速度图、调性、和弦与置信度</span></div>
                     <button className="outlined-wide" disabled={!hasAudio} onClick={exportAnnotations}><Download size={16} />导出 JSON</button>
                   </article>
                   <article className="feature-card setting-card">
@@ -1646,7 +1512,6 @@ export default function App() {
             <div className="summary-stat"><span>音频时长</span><strong>{hasAudio ? formatTime(analysis.duration, true) : '—'}</strong></div>
             <div className="summary-stat"><span>和弦片段</span><strong>{chords.length}</strong></div>
             <div className="summary-stat"><span>速度段</span><strong>{hasAudio ? tempoMarkers.length : 0}</strong></div>
-            <div className="summary-stat"><span>时间备注</span><strong>{notes.length}</strong></div>
             <button className="outlined-wide" onClick={() => setActivePage('chords')}><Music2 size={16} />返回和弦时间轴</button>
           </div>
         )}

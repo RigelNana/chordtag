@@ -1,4 +1,4 @@
-import { Chord, Note, Progression } from '@tonaljs/tonal'
+import { Chord, ChordType, Note, Progression } from '@tonaljs/tonal'
 import type {
   AudioAnalysis,
   BeatMarker,
@@ -21,122 +21,68 @@ export const QUALITY_FAMILIES: Array<{ value: 'all' | ChordFamily; label: string
   { value: 'altered', label: '变化' },
 ]
 
-export const QUALITY_OPTIONS: Array<{
+export interface ChordQualityOption {
   value: ChordQuality
   label: string
   short: string
   family: ChordFamily
-}> = [
-  { value: 'maj', label: '大三和弦', short: 'Major', family: 'basic' },
-  { value: 'min', label: '小三和弦', short: 'Minor', family: 'basic' },
-  { value: '5', label: '强力和弦', short: 'Power', family: 'basic' },
-  { value: 'sus2', label: '挂二和弦', short: 'Suspended 2', family: 'basic' },
-  { value: 'sus4', label: '挂四和弦', short: 'Suspended 4', family: 'basic' },
-  { value: 'dim', label: '减三和弦', short: 'Diminished', family: 'basic' },
-  { value: 'aug', label: '增三和弦', short: 'Augmented', family: 'basic' },
-  { value: '6', label: '大六和弦', short: 'Major 6', family: 'basic' },
-  { value: 'm6', label: '小六和弦', short: 'Minor 6', family: 'basic' },
-  { value: '6/9', label: '大六加九', short: 'Six nine', family: 'basic' },
-  { value: 'm6/9', label: '小六加九', short: 'Minor six nine', family: 'basic' },
-  { value: 'add9', label: '大三加九', short: 'Add 9', family: 'basic' },
-  { value: 'madd9', label: '小三加九', short: 'Minor add 9', family: 'basic' },
-  { value: '7', label: '属七和弦', short: 'Dominant 7', family: 'seventh' },
-  { value: 'maj7', label: '大七和弦', short: 'Major 7', family: 'seventh' },
-  { value: 'm7', label: '小七和弦', short: 'Minor 7', family: 'seventh' },
-  { value: 'mMaj7', label: '小大七和弦', short: 'Minor major 7', family: 'seventh' },
-  { value: 'dim7', label: '减七和弦', short: 'Diminished 7', family: 'seventh' },
-  { value: 'm7b5', label: '半减七和弦', short: 'Half diminished', family: 'seventh' },
-  { value: '7sus4', label: '属七挂四', short: 'Dominant 7 sus 4', family: 'seventh' },
-  { value: '9', label: '属九和弦', short: 'Dominant 9', family: 'extended' },
-  { value: 'maj9', label: '大九和弦', short: 'Major 9', family: 'extended' },
-  { value: 'm9', label: '小九和弦', short: 'Minor 9', family: 'extended' },
-  { value: '9sus4', label: '属九挂四', short: 'Dominant 9 sus 4', family: 'extended' },
-  { value: '11', label: '属十一和弦', short: 'Dominant 11', family: 'extended' },
-  { value: 'm11', label: '小十一和弦', short: 'Minor 11', family: 'extended' },
-  { value: '13', label: '属十三和弦', short: 'Dominant 13', family: 'extended' },
-  { value: 'maj13', label: '大十三和弦', short: 'Major 13', family: 'extended' },
-  { value: 'm13', label: '小十三和弦', short: 'Minor 13', family: 'extended' },
-  { value: '13sus4', label: '属十三挂四', short: 'Dominant 13 sus 4', family: 'extended' },
-  { value: '7b5', label: '属七降五', short: 'Dominant 7 flat 5', family: 'altered' },
-  { value: '7#5', label: '属七升五', short: 'Dominant 7 sharp 5', family: 'altered' },
-  { value: '7b9', label: '属七降九', short: 'Dominant 7 flat 9', family: 'altered' },
-  { value: '7#9', label: '属七升九', short: 'Dominant 7 sharp 9', family: 'altered' },
-  { value: '7#11', label: '属七升十一', short: 'Lydian dominant', family: 'altered' },
-  { value: '7#5b9', label: '属七升五降九', short: 'Dominant altered', family: 'altered' },
-  { value: '7#5#9', label: '属七升五升九', short: 'Dominant altered', family: 'altered' },
-  { value: 'maj7#11', label: '大七升十一', short: 'Major 7 sharp 11', family: 'altered' },
-  { value: 'maj9#11', label: '大九升十一', short: 'Major 9 sharp 11', family: 'altered' },
-  { value: 'm9b5', label: '小九降五', short: 'Minor 9 flat 5', family: 'altered' },
-]
-
-export const QUALITY_SUFFIX: Record<ChordQuality, string> = {
-  maj: '',
-  min: 'm',
-  '5': '5',
-  '7': '7',
-  maj7: 'maj7',
-  m7: 'm7',
-  mMaj7: 'mMaj7',
-  sus2: 'sus2',
-  sus4: 'sus4',
-  dim: 'dim',
-  dim7: 'dim7',
-  m7b5: 'm7♭5',
-  aug: 'aug',
-  add9: 'add9',
-  madd9: 'madd9',
-  '6': '6',
-  m6: 'm6',
-  '6/9': '6/9',
-  'm6/9': 'm6/9',
-  '7sus4': '7sus4',
-  '9': '9',
-  maj9: 'maj9',
-  m9: 'm9',
-  '9sus4': '9sus4',
-  '11': '11',
-  m11: 'm11',
-  '13': '13',
-  maj13: 'maj13',
-  m13: 'm13',
-  '13sus4': '13sus4',
-  '7b5': '7♭5',
-  '7#5': '7♯5',
-  '7b9': '7♭9',
-  '7#9': '7♯9',
-  '7#11': '7♯11',
-  '7#5b9': '7♯5♭9',
-  '7#5#9': '7♯5♯9',
-  'maj7#11': 'maj7♯11',
-  'maj9#11': 'maj9♯11',
-  m9b5: 'm9♭5',
 }
 
-const TONAL_SUFFIX: Record<ChordQuality, string> = {
-  ...QUALITY_SUFFIX,
-  m7b5: 'm7b5',
+const LEGACY_QUALITY: Record<string, string> = {
+  maj: 'maj',
+  min: 'm',
   '6/9': '6add9',
   'm6/9': 'm69',
-  '7b5': '7b5',
-  '7#5': '7#5',
-  '7b9': '7b9',
-  '7#9': '7#9',
-  '7#11': '7#11',
-  '7#5b9': '7#5b9',
-  '7#5#9': '7#5#9',
-  'maj7#11': 'maj7#11',
-  'maj9#11': 'maj9#11',
-  m9b5: 'm9b5',
 }
+
+function preferredAlias(name: string, aliases: readonly string[]) {
+  if (name === 'major') return 'maj'
+  if (name === 'minor') return 'min'
+  return aliases.find((alias) => alias && /^[A-Za-z0-9+#/()-]+$/.test(alias))
+    ?? aliases.find(Boolean)
+    ?? name
+}
+
+function chordFamily(name: string, alias: string): ChordFamily {
+  const value = `${name} ${alias}`.toLowerCase()
+  if (/(#|b|alt|lydian|phryg|augmented seventh)/.test(value)) return 'altered'
+  if (/(9|11|13|ninth|eleventh|thirteenth)/.test(value)) return 'extended'
+  if (/(7|seventh|half-diminished|diminished seventh)/.test(value)) return 'seventh'
+  return 'basic'
+}
+
+export const QUALITY_OPTIONS: ChordQualityOption[] = ChordType.all()
+  .map((type) => {
+    const value = preferredAlias(type.name, type.aliases)
+    return {
+      value,
+      label: type.name || value,
+      short: type.aliases.filter(Boolean).join(' · ') || value,
+      family: chordFamily(type.name, value),
+    }
+  })
+  .filter((option, index, options) =>
+    option.value && options.findIndex((candidate) => candidate.value === option.value) === index,
+  )
+  .sort((a, b) => {
+    const order: Record<ChordFamily, number> = { basic: 0, seventh: 1, extended: 2, altered: 3 }
+    return order[a.family] - order[b.family] || a.label.localeCompare(b.label)
+  })
 
 export const CHORD_COLORS: ChordColor[] = ['lavender', 'mint', 'peach', 'sky', 'rose']
 
+export function qualityDisplay(quality: ChordQuality) {
+  const normalized = LEGACY_QUALITY[quality] ?? quality
+  if (normalized === 'maj' || normalized === 'M' || normalized === '^') return ''
+  return normalized.replaceAll('b', '♭').replaceAll('#', '♯')
+}
+
 export function chordName(chord: Pick<ChordAnnotation, 'root' | 'quality' | 'bass'>) {
-  return `${chord.root}${QUALITY_SUFFIX[chord.quality]}${chord.bass ? `/${chord.bass}` : ''}`
+  return `${chord.root}${qualityDisplay(chord.quality)}${chord.bass ? `/${chord.bass}` : ''}`
 }
 
 export function tonalChordName(chord: Pick<ChordAnnotation, 'root' | 'quality'>) {
-  return `${chord.root}${TONAL_SUFFIX[chord.quality]}`
+  return `${chord.root}${LEGACY_QUALITY[chord.quality] ?? chord.quality}`
 }
 
 export function chordNotes(chord: Pick<ChordAnnotation, 'root' | 'quality'>) {
@@ -152,56 +98,13 @@ export function romanNumeral(
     const raw = Progression.toRomanNumerals(keyRoot, [tonalChordName(chord)])[0] ?? ''
     const degree = raw.match(/^([b#]*)([IViv]+)/)
     if (!degree) return raw || '—'
-    const minorDegree = [
-      'min', 'm7', 'mMaj7', 'm6', 'm6/9', 'madd9',
-      'm9', 'm11', 'm13', 'dim', 'dim7', 'm7b5', 'm9b5',
-    ]
-      .includes(chord.quality)
-    const suffix: Record<ChordQuality, string> = {
-      maj: '',
-      min: '',
-      '5': '5',
-      '7': '7',
-      maj7: 'maj7',
-      m7: '7',
-      mMaj7: 'maj7',
-      sus2: 'sus2',
-      sus4: 'sus4',
-      dim: '°',
-      dim7: '°7',
-      m7b5: 'ø7',
-      aug: '+',
-      add9: 'add9',
-      madd9: 'add9',
-      '6': '6',
-      m6: '6',
-      '6/9': '6/9',
-      'm6/9': '6/9',
-      '7sus4': '7sus4',
-      '9': '9',
-      maj9: 'maj9',
-      m9: '9',
-      '9sus4': '9sus4',
-      '11': '11',
-      m11: '11',
-      '13': '13',
-      maj13: 'maj13',
-      m13: '13',
-      '13sus4': '13sus4',
-      '7b5': '7♭5',
-      '7#5': '7♯5',
-      '7b9': '7♭9',
-      '7#9': '7♯9',
-      '7#11': '7♯11',
-      '7#5b9': '7♯5♭9',
-      '7#5#9': '7♯5♯9',
-      'maj7#11': 'maj7♯11',
-      'maj9#11': 'maj9♯11',
-      m9b5: '9♭5',
-    }
+    const chordData = Chord.get(tonalChordName(chord))
+    const minorDegree = chordData.quality === 'Minor' || chordData.quality === 'Diminished'
     const accidental = degree[1]
     const numeral = minorDegree ? degree[2].toLowerCase() : degree[2].toUpperCase()
-    return `${accidental}${numeral}${suffix[chord.quality]}`
+    const rawSuffix = qualityDisplay(chord.quality)
+    const suffix = minorDegree ? rawSuffix.replace(/^m(?:in)?/, '') : rawSuffix
+    return `${accidental.replace('b', '♭')}${numeral}${suffix}`
   } catch {
     const keyChroma = Note.chroma(keyRoot)
     const chordChroma = Note.chroma(chord.root)

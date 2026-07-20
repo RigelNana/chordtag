@@ -2,6 +2,7 @@ import {
   Activity,
   AudioLines,
   BadgeCheck,
+  Check,
   ChevronDown,
   CircleHelp,
   Download,
@@ -21,7 +22,6 @@ import {
   Plus,
   Redo2,
   Save,
-  Scissors,
   Search,
   Settings2,
   SlidersHorizontal,
@@ -31,8 +31,6 @@ import {
   Upload,
   Volume2,
   Waves,
-  ZoomIn,
-  ZoomOut,
   X,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
@@ -54,7 +52,6 @@ import {
   INITIAL_TEMPO,
   QUALITY_FAMILIES,
   QUALITY_OPTIONS,
-  QUALITY_SUFFIX,
   ROOTS,
   type ChordFamily,
   buildGrid,
@@ -63,6 +60,7 @@ import {
   createDemoAnalysis,
   formatTime,
   normalizeTempoMarkers,
+  qualityDisplay,
   romanNumeral,
   snapTime,
 } from './music'
@@ -84,6 +82,27 @@ type HistoryState = {
   future: ChordAnnotation[][]
 }
 
+type WorkspacePage = 'audio' | 'structure' | 'chords' | 'notes' | 'settings'
+
+interface TimelineNote {
+  id: string
+  time: number
+  text: string
+}
+
+function removeChordOverlaps(items: ChordAnnotation[]) {
+  let cursor = 0
+  return [...items]
+    .sort((a, b) => a.start - b.start)
+    .map((item) => {
+      const originalEnd = item.start + item.duration
+      const start = Math.max(cursor, item.start)
+      const duration = Math.max(0.08, originalEnd - start)
+      cursor = start + duration
+      return { ...item, start, duration }
+    })
+}
+
 interface ChordInspectorProps {
   chord?: ChordAnnotation
   keyRoot: string
@@ -91,6 +110,84 @@ interface ChordInspectorProps {
   onClose: () => void
   onDelete: () => void
   onUpdate: (patch: Partial<ChordAnnotation>) => void
+}
+
+interface SelectOption {
+  value: string
+  label: string
+  detail?: string
+}
+
+function MaterialSelect({
+  ariaLabel,
+  className = '',
+  onChange,
+  options,
+  value,
+}: {
+  ariaLabel: string
+  className?: string
+  onChange: (value: string) => void
+  options: SelectOption[]
+  value: string
+}) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const selected = options.find((option) => option.value === value) ?? options[0]
+
+  useEffect(() => {
+    const close = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', close)
+    return () => document.removeEventListener('pointerdown', close)
+  }, [])
+
+  return (
+    <div className={`m3-select ${className}`} ref={rootRef}>
+      <button
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-label={ariaLabel}
+        className="m3-select-trigger"
+        onClick={() => setOpen((current) => !current)}
+        type="button"
+      >
+        <span>{selected?.label ?? value}</span>
+        <ChevronDown className={open ? 'rotated' : ''} size={14} />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            className="m3-select-menu"
+            exit={{ opacity: 0, y: -4, scale: 0.98 }}
+            initial={{ opacity: 0, y: -4, scale: 0.98 }}
+            role="listbox"
+            transition={{ duration: 0.14 }}
+          >
+            {options.map((option) => (
+              <button
+                aria-selected={option.value === value}
+                className={option.value === value ? 'selected' : ''}
+                key={option.value}
+                onClick={() => {
+                  onChange(option.value)
+                  setOpen(false)
+                }}
+                role="option"
+                type="button"
+              >
+                <span>{option.label}</span>
+                {option.detail && <small>{option.detail}</small>}
+                {option.value === value && <Check size={15} />}
+              </button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
 }
 
 function ChordInspector({
@@ -197,7 +294,7 @@ function ChordInspector({
                   key={quality.value}
                   onClick={() => onUpdate({ quality: quality.value })}
                 >
-                  <span>{QUALITY_SUFFIX[quality.value] || 'maj'}</span>
+                  <span>{qualityDisplay(quality.value) || 'maj'}</span>
                   <small>{quality.label}</small>
                 </button>
               ))}
@@ -207,13 +304,15 @@ function ChordInspector({
           <section className="inspector-section two-column-fields">
             <label>
               <span>低音（斜线和弦）</span>
-              <select
+              <MaterialSelect
+                ariaLabel="低音（斜线和弦）"
+                onChange={(value) => onUpdate({ bass: value || undefined })}
+                options={[
+                  { value: '', label: '无' },
+                  ...ROOTS.map((root) => ({ value: root, label: root })),
+                ]}
                 value={chord.bass ?? ''}
-                onChange={(event) => onUpdate({ bass: event.target.value || undefined })}
-              >
-                <option value="">无</option>
-                {ROOTS.map((root) => <option key={root} value={root}>{root}</option>)}
-              </select>
+              />
             </label>
             <label>
               <span>置信度</span>
@@ -272,13 +371,14 @@ function ToolButton({
 }
 
 export default function App() {
+  const [activePage, setActivePage] = useState<WorkspacePage>('chords')
   const [analysis, setAnalysis] = useState(createDemoAnalysis)
   const [waveformMode, setWaveformMode] = useState<WaveformMode>('waveform')
   const [chords, setChords] = useState<ChordAnnotation[]>(() => {
     const saved = localStorage.getItem('chordtag-annotations')
     if (!saved) return INITIAL_CHORDS
     try {
-      return JSON.parse(saved) as ChordAnnotation[]
+      return removeChordOverlaps(JSON.parse(saved) as ChordAnnotation[])
     } catch {
       return INITIAL_CHORDS
     }
@@ -302,11 +402,22 @@ export default function App() {
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [importProgress, setImportProgress] = useState<number | null>(null)
   const [saveState, setSaveState] = useState<'saved' | 'saving'>('saved')
+  const [notes, setNotes] = useState<TimelineNote[]>(() => {
+    const saved = localStorage.getItem('chordtag-notes')
+    if (!saved) return [{ id: 'note-1', time: 8.536, text: '这里进入 6/8，注意和弦呼吸感。' }]
+    try {
+      return JSON.parse(saved) as TimelineNote[]
+    } catch {
+      return []
+    }
+  })
+  const [noteDraft, setNoteDraft] = useState('')
   const scrollerRef = useRef<HTMLDivElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const playbackAnchor = useRef({ startedAt: 0, from: 0 })
   const saveTimer = useRef<number | undefined>(undefined)
+  const zoomRef = useRef(pixelsPerSecond)
 
   const grid = useMemo(
     () => buildGrid(tempoMarkers, analysis.duration, gridDivision),
@@ -328,7 +439,7 @@ export default function App() {
       past: [...current.past.slice(-39), chords],
       future: [],
     }))
-    setChords(next)
+    setChords(removeChordOverlaps(next))
   }, [chords])
 
   const updateSelected = useCallback((patch: Partial<ChordAnnotation>) => {
@@ -348,8 +459,34 @@ export default function App() {
     const marker = [...grid].reverse().find((item) => item.time <= time) ?? grid[0]
     const beatSeconds = marker ? (60 / marker.bpm) * (4 / Number(marker.meter.split('/')[1])) : 0.5
     const meterBeats = marker ? Number(marker.meter.split('/')[0]) : 4
-    const start = snapTime(time, grid, analysis.duration)
-    const duration = Math.max(0.12, Math.min(beatSeconds * meterBeats, analysis.duration - start))
+    const minimum = Math.max(0.08, beatSeconds / Math.max(1, gridDivision))
+    let start = snapTime(time, grid, analysis.duration)
+    const sorted = [...chords].sort((a, b) => a.start - b.start)
+    const exact = sorted.find((item) => Math.abs(item.start - start) < 0.01)
+    if (exact) {
+      setSelectedId(exact.id)
+      setInspectorOpen(true)
+      return
+    }
+
+    const containing = sorted.find((item) =>
+      start > item.start + 0.01 && start < item.start + item.duration - 0.01,
+    )
+    const previous = [...sorted].reverse().find((item) => item.start + item.duration <= start + 0.01)
+    if (!containing && previous) start = Math.max(start, previous.start + previous.duration)
+    const next = sorted.find((item) => item.start >= start - 0.01)
+    const availableEnd = containing
+      ? containing.start + containing.duration
+      : Math.min(next?.start ?? analysis.duration, analysis.duration)
+    const duration = Math.min(beatSeconds * meterBeats, availableEnd - start)
+    if (duration < minimum) {
+      const neighbor = next ?? previous
+      if (neighbor) {
+        setSelectedId(neighbor.id)
+        setInspectorOpen(true)
+      }
+      return
+    }
     const chord: ChordAnnotation = {
       id: `chord-${crypto.randomUUID()}`,
       start,
@@ -359,10 +496,15 @@ export default function App() {
       color: CHORD_COLORS[chords.length % CHORD_COLORS.length],
       confidence: 1,
     }
-    commitAnnotations([...chords, chord].sort((a, b) => a.start - b.start))
+    const nextChords = containing
+      ? chords.flatMap((item) => item.id === containing.id
+        ? [{ ...item, duration: start - item.start }, chord]
+        : [item])
+      : [...chords, chord]
+    commitAnnotations(nextChords.sort((a, b) => a.start - b.start))
     setSelectedId(chord.id)
     setInspectorOpen(true)
-  }, [analysis.duration, chords, commitAnnotations, grid, keyMode, keyRoot])
+  }, [analysis.duration, chords, commitAnnotations, grid, gridDivision, keyMode, keyRoot])
 
   const undo = useCallback(() => {
     const previous = history.past.at(-1)
@@ -454,8 +596,12 @@ export default function App() {
   }, [chords])
 
   useEffect(() => {
+    localStorage.setItem('chordtag-notes', JSON.stringify(notes))
+  }, [notes])
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return
       if (event.code === 'Space') {
         event.preventDefault()
         togglePlayback()
@@ -478,11 +624,13 @@ export default function App() {
 
   const setZoom = (nextZoom: number, anchorX = viewportWidth / 2) => {
     const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoom))
-    const anchorTime = (scrollLeft + anchorX) / pixelsPerSecond
+    const scroller = scrollerRef.current
+    const anchorTime = ((scroller?.scrollLeft ?? scrollLeft) + anchorX) / zoomRef.current
+    zoomRef.current = next
     setPixelsPerSecond(next)
     requestAnimationFrame(() => {
-      if (scrollerRef.current) {
-        scrollerRef.current.scrollLeft = Math.max(0, anchorTime * next - anchorX)
+      if (scroller) {
+        scroller.scrollLeft = Math.max(0, anchorTime * next - anchorX)
       }
     })
   }
@@ -492,7 +640,7 @@ export default function App() {
     event.preventDefault()
     const bounds = event.currentTarget.getBoundingClientRect()
     const anchor = event.clientX - bounds.left
-    setZoom(pixelsPerSecond * (event.deltaY > 0 ? 0.9 : 1.1), anchor)
+    setZoom(zoomRef.current * (event.deltaY > 0 ? 0.92 : 1.087), anchor)
   }
 
   const beginPan = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -523,28 +671,37 @@ export default function App() {
     const pointerStart = event.clientX
     const original = chords
     const minDuration = grid.length > 1 ? Math.max(0.08, grid[1].time - grid[0].time) : 0.12
+    const ordered = [...chords].sort((a, b) => a.start - b.start)
+    const chordIndex = ordered.findIndex((item) => item.id === chord.id)
+    const previous = ordered[chordIndex - 1]
+    const next = ordered[chordIndex + 1]
+    const previousEnd = previous ? previous.start + previous.duration : 0
+    const nextStart = next?.start ?? analysis.duration
     let changed = false
 
     const onMove = (moveEvent: PointerEvent) => {
-      const delta = (moveEvent.clientX - pointerStart) / pixelsPerSecond
+      const delta = (moveEvent.clientX - pointerStart) / zoomRef.current
       changed = changed || Math.abs(delta) > 0.005
       if (changed) setSaveState('saving')
       setChords((current) => current.map((item) => {
         if (item.id !== chord.id) return item
         if (mode === 'move') {
-          const start = snapTime(chord.start + delta, grid, analysis.duration)
-          return { ...item, start: Math.min(analysis.duration - chord.duration, start) }
+          const desired = snapTime(chord.start + delta, grid, analysis.duration)
+          const start = Math.max(previousEnd, Math.min(nextStart - chord.duration, desired))
+          return { ...item, start }
         }
         if (mode === 'start') {
           const end = chord.start + chord.duration
-          const start = Math.min(end - minDuration, snapTime(chord.start + delta, grid, analysis.duration))
+          const desired = snapTime(chord.start + delta, grid, analysis.duration)
+          const start = Math.max(previousEnd, Math.min(end - minDuration, desired))
           return { ...item, start, duration: end - start }
         }
-        const end = Math.max(
+        const desiredEnd = Math.max(
           chord.start + minDuration,
           snapTime(chord.start + chord.duration + delta, grid, analysis.duration),
         )
-        return { ...item, duration: Math.min(analysis.duration, end) - chord.start }
+        const end = Math.min(nextStart, desiredEnd)
+        return { ...item, duration: end - chord.start }
       }))
     }
     const onUp = () => {
@@ -561,30 +718,40 @@ export default function App() {
     document.addEventListener('pointerup', onUp)
   }
 
-  const splitChord = (chord: ChordAnnotation, time: number) => {
-    if (time <= chord.start + 0.08 || time >= chord.start + chord.duration - 0.08) return
-    const splitAt = snapTime(time, grid, analysis.duration)
-    const right: ChordAnnotation = {
-      ...chord,
-      id: `chord-${crypto.randomUUID()}`,
-      start: splitAt,
-      duration: chord.start + chord.duration - splitAt,
-    }
-    commitAnnotations(chords.flatMap((item) =>
-      item.id === chord.id
-        ? [{ ...item, duration: splitAt - item.start }, right]
-        : [item],
-    ))
-    setSelectedId(right.id)
-    setTool('select')
+  const applyFirstBeatOffset = (value: number) => {
+    const bounded = Math.max(0, Math.min(analysis.duration, value))
+    setFirstBeatOffset(bounded)
+    setTempoMarkers((current) => normalizeTempoMarkers(current, bounded))
   }
 
-  const updateTempo = (patch: Partial<TempoMarker>) => {
+  const beginFirstBeatDrag = (event: ReactPointerEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const pointerStart = event.clientX
+    const offsetStart = firstBeatOffset
+    let frame = 0
+    const onMove = (moveEvent: PointerEvent) => {
+      const next = offsetStart + (moveEvent.clientX - pointerStart) / zoomRef.current
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => applyFirstBeatOffset(next))
+    }
+    const onUp = () => {
+      cancelAnimationFrame(frame)
+      document.removeEventListener('pointermove', onMove)
+      document.removeEventListener('pointerup', onUp)
+    }
+    document.addEventListener('pointermove', onMove)
+    document.addEventListener('pointerup', onUp)
+  }
+
+  const updateTempoMarker = (id: string, patch: Partial<TempoMarker>) => {
     setTempoMarkers((current) => normalizeTempoMarkers(
-      current.map((marker) => marker.id === activeTempo.id ? { ...marker, ...patch } : marker),
+      current.map((marker) => marker.id === id ? { ...marker, ...patch } : marker),
       firstBeatOffset,
     ))
   }
+
+  const updateTempo = (patch: Partial<TempoMarker>) => updateTempoMarker(activeTempo.id, patch)
 
   const addTempoMarker = () => {
     const currentBar = [...grid].reverse().find((marker) => marker.isBar && marker.time <= currentTime)
@@ -684,15 +851,17 @@ export default function App() {
           <span>导入</span>
         </button>
         <div className="rail-nav">
-          <button><FileAudio size={21} /><span>音频</span></button>
-          <button><Layers3 size={21} /><span>结构</span></button>
-          <button className="active"><Music2 size={21} /><span>和弦</span></button>
-          <button><MessageCircle size={21} /><span>备注</span></button>
+          <button className={activePage === 'audio' ? 'active' : ''} onClick={() => setActivePage('audio')}><FileAudio size={21} /><span>音频</span></button>
+          <button className={activePage === 'structure' ? 'active' : ''} onClick={() => setActivePage('structure')}><Layers3 size={21} /><span>结构</span></button>
+          <button className={activePage === 'chords' ? 'active' : ''} onClick={() => setActivePage('chords')}><Music2 size={21} /><span>和弦</span></button>
+          <button className={activePage === 'notes' ? 'active' : ''} onClick={() => setActivePage('notes')}><MessageCircle size={21} /><span>备注</span></button>
         </div>
-        <button className="rail-bottom"><Settings2 size={21} /><span>设置</span></button>
+        <button className={`rail-bottom ${activePage === 'settings' ? 'active' : ''}`} onClick={() => setActivePage('settings')}><Settings2 size={21} /><span>设置</span></button>
       </aside>
 
       <main className="workspace">
+        {activePage === 'chords' ? (
+          <>
         <div className="workspace-toolbar">
           <div className="tool-cluster">
             <ToolButton active={tool === 'select'} label="选择工具 (V)" onClick={() => setTool('select')}>
@@ -701,25 +870,29 @@ export default function App() {
             <ToolButton active={tool === 'pan'} label="平移工具 (H)" onClick={() => setTool('pan')}>
               <Hand size={18} />
             </ToolButton>
-            <ToolButton active={tool === 'split'} label="切分工具 (S)" onClick={() => setTool('split')}>
-              <Scissors size={18} />
-            </ToolButton>
             <span className="toolbar-divider" />
             <ToolButton label="撤销" onClick={undo}><Undo2 size={18} /></ToolButton>
             <ToolButton label="重做" onClick={redo}><Redo2 size={18} /></ToolButton>
           </div>
 
           <div className="context-controls">
-            <label className="key-control">
+            <div className="key-control">
               <span>调性</span>
-              <select value={keyRoot} onChange={(event) => setKeyRoot(event.target.value)}>
-                {ROOTS.map((root) => <option key={root}>{root}</option>)}
-              </select>
-              <select value={keyMode} onChange={(event) => setKeyMode(event.target.value as 'major' | 'minor')}>
-                <option value="major">大调</option>
-                <option value="minor">小调</option>
-              </select>
-            </label>
+              <MaterialSelect
+                ariaLabel="调性根音"
+                className="compact"
+                onChange={setKeyRoot}
+                options={ROOTS.map((root) => ({ value: root, label: root }))}
+                value={keyRoot}
+              />
+              <MaterialSelect
+                ariaLabel="调式"
+                className="compact"
+                onChange={(value) => setKeyMode(value as 'major' | 'minor')}
+                options={[{ value: 'major', label: '大调' }, { value: 'minor', label: '小调' }]}
+                value={keyMode}
+              />
+            </div>
             <button className="keyboard-hint"><Keyboard size={16} /><span>快捷键</span><kbd>?</kbd></button>
           </div>
         </div>
@@ -765,8 +938,16 @@ export default function App() {
                       <div className="tempo-fields">
                         <label><span>BPM</span><input type="number" min="20" max="300" value={activeTempo.bpm} onChange={(event) => updateTempo({ bpm: Number(event.target.value) })} /></label>
                         <label><span>每小节拍数</span><input type="number" min="1" max="16" value={activeTempo.numerator} onChange={(event) => updateTempo({ numerator: Number(event.target.value) })} /></label>
-                        <label><span>拍值</span><select value={activeTempo.denominator} onChange={(event) => updateTempo({ denominator: Number(event.target.value) })}><option>2</option><option>4</option><option>8</option><option>16</option></select></label>
-                        <label><span>首拍起点 (秒)</span><input type="number" min="0" step="0.01" value={firstBeatOffset} onChange={(event) => { const value = Number(event.target.value); setFirstBeatOffset(value); setTempoMarkers((current) => normalizeTempoMarkers(current, value)) }} /></label>
+                        <label>
+                          <span>拍值</span>
+                          <MaterialSelect
+                            ariaLabel="拍号分母"
+                            onChange={(value) => updateTempo({ denominator: Number(value) })}
+                            options={['2', '4', '8', '16'].map((value) => ({ value, label: value }))}
+                            value={String(activeTempo.denominator)}
+                          />
+                        </label>
+                        <label><span>首拍起点 (秒)</span><input type="number" min="0" step="0.01" value={firstBeatOffset} onChange={(event) => applyFirstBeatOffset(Number(event.target.value))} /></label>
                       </div>
                       <button className="outlined-wide" onClick={addTempoMarker}><Plus size={16} />在当前小节添加切换</button>
                       <div className="tempo-map">
@@ -780,18 +961,24 @@ export default function App() {
                   )}
                 </AnimatePresence>
               </div>
-              <label className="setting-chip grid-chip">
+              <div className="setting-chip grid-chip">
                 <Grid2X2 size={16} />
                 网格
-                <select value={gridDivision} onChange={(event) => setGridDivision(Number(event.target.value) as GridDivision)}>
-                  <option value="1">1/4</option>
-                  <option value="2">1/8</option>
-                  <option value="4">1/16</option>
-                  <option value="8">1/32</option>
-                </select>
-              </label>
+                <MaterialSelect
+                  ariaLabel="网格粒度"
+                  className="compact"
+                  onChange={(value) => setGridDivision(Number(value) as GridDivision)}
+                  options={[
+                    { value: '1', label: '1/4' },
+                    { value: '2', label: '1/8' },
+                    { value: '4', label: '1/16' },
+                    { value: '8', label: '1/32' },
+                  ]}
+                  value={String(gridDivision)}
+                />
+              </div>
               <div className="zoom-control">
-                <button aria-label="缩小时间轴" onClick={() => setZoom(pixelsPerSecond * 0.82)}><ZoomOut size={16} /></button>
+                <button aria-label="缩小时间轴" onClick={() => setZoom(pixelsPerSecond * 0.82)}>−</button>
                 <input
                   aria-label="时间轴缩放"
                   max={MAX_ZOOM}
@@ -800,7 +987,8 @@ export default function App() {
                   value={pixelsPerSecond}
                   onChange={(event) => setZoom(Number(event.target.value))}
                 />
-                <button aria-label="放大时间轴" onClick={() => setZoom(pixelsPerSecond * 1.22)}><ZoomIn size={16} /></button>
+                <button aria-label="放大时间轴" onClick={() => setZoom(pixelsPerSecond * 1.22)}>＋</button>
+                <span>{Math.round((pixelsPerSecond / 108) * 100)}%</span>
               </div>
             </div>
           </div>
@@ -814,6 +1002,17 @@ export default function App() {
           >
             <div className="timeline-surface" style={{ width: timelineWidth }}>
               <div className="ruler-row">
+                <button
+                  aria-label="拖动首拍起点"
+                  className="first-beat-anchor"
+                  onPointerDown={beginFirstBeatDrag}
+                  style={{ left: firstBeatOffset * pixelsPerSecond }}
+                  title="拖动首拍；后续小节线会一起移动"
+                  type="button"
+                >
+                  <span />
+                  首拍
+                </button>
                 {visibleGrid.filter((marker) => marker.isBar).map((marker) => (
                   <span
                     className="bar-number"
@@ -851,6 +1050,16 @@ export default function App() {
                   <Music2 size={15} />
                   <span>和弦</span>
                   <small>{chords.length}</small>
+                  <button
+                    aria-label="在播放头处添加和弦"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      addChordAt(currentTime)
+                    }}
+                    type="button"
+                  >
+                    <Plus size={13} />
+                  </button>
                 </div>
                 {chords.map((chord) => {
                   const numeral = romanNumeral(keyRoot, keyMode, chord)
@@ -860,16 +1069,10 @@ export default function App() {
                       className={`chord-block ${chord.color} ${selectedId === chord.id ? 'selected' : ''}`}
                       initial={{ opacity: 0, scale: 0.96 }}
                       key={chord.id}
-                      layout
                       onClick={(event) => {
                         event.stopPropagation()
-                        if (tool === 'split') {
-                          const bounds = event.currentTarget.getBoundingClientRect()
-                          splitChord(chord, chord.start + (event.clientX - bounds.left) / pixelsPerSecond)
-                        } else {
-                          setSelectedId(chord.id)
-                          setInspectorOpen(true)
-                        }
+                        setSelectedId(chord.id)
+                        setInspectorOpen(true)
                       }}
                       onPointerDown={(event) => beginChordDrag(event, chord, 'move')}
                       style={{
@@ -890,9 +1093,6 @@ export default function App() {
                     </motion.button>
                   )
                 })}
-                <button className="quick-add" onClick={() => addChordAt(currentTime)} style={{ left: currentTime * pixelsPerSecond + 8 }}>
-                  <Plus size={14} />和弦
-                </button>
               </div>
 
               <div className="timeline-grid" aria-hidden>
@@ -943,14 +1143,165 @@ export default function App() {
           <div><SlidersHorizontal size={15} /><span>48 kHz · 24 bit · Stereo</span></div>
           <button onClick={() => fileInputRef.current?.click()}><Upload size={15} />替换音频</button>
         </div>
+          </>
+        ) : (
+          <motion.section
+            animate={{ opacity: 1, y: 0 }}
+            className="feature-page"
+            initial={{ opacity: 0, y: 8 }}
+            key={activePage}
+          >
+            {activePage === 'audio' && (
+              <>
+                <div className="feature-page-header">
+                  <div className="page-icon"><FileAudio size={24} /></div>
+                  <div><span className="eyebrow">Audio workspace</span><h1>音频与分析</h1><p>管理源音频，并检查当前振幅与频谱分析结果。</p></div>
+                  <button className="filled-button" onClick={() => fileInputRef.current?.click()}><Upload size={17} />替换音频</button>
+                </div>
+                <div className="feature-grid">
+                  <article className="feature-card source-card">
+                    <span className="eyebrow">当前音频</span>
+                    <div className="audio-file-row">
+                      <div className="audio-file-icon"><AudioLines size={25} /></div>
+                      <div><strong>{analysis.name}</strong><span>{formatTime(analysis.duration, true)} · 本地处理</span></div>
+                      <BadgeCheck size={18} />
+                    </div>
+                    <div className="mini-waveform" aria-label="音频波形概览">
+                      {analysis.peaks.filter((_, index) => index % Math.max(1, Math.floor(analysis.peaks.length / 90)) === 0).slice(0, 90).map((peak, index) => (
+                        <span key={index} style={{ height: `${Math.max(8, peak * 100)}%` }} />
+                      ))}
+                    </div>
+                    <button className="outlined-wide" onClick={() => { setActivePage('chords'); seek(0) }}><Play size={16} />打开时间轴</button>
+                  </article>
+                  <article className="feature-card">
+                    <span className="eyebrow">分析数据</span>
+                    <h2>浏览器内完成，无需上传</h2>
+                    <div className="metric-grid">
+                      <div><strong>{analysis.peaks.length.toLocaleString()}</strong><span>振幅采样点</span></div>
+                      <div><strong>{analysis.spectrogram.length}</strong><span>频谱时间窗</span></div>
+                      <div><strong>{analysis.spectrogram[0]?.length ?? 0}</strong><span>对数频带</span></div>
+                      <div><strong>100%</strong><span>本地隐私</span></div>
+                    </div>
+                    <div className="view-switch wide">
+                      <button className={waveformMode === 'waveform' ? 'active' : ''} onClick={() => setWaveformMode('waveform')}><Waves size={16} />振幅</button>
+                      <button className={waveformMode === 'spectrogram' ? 'active' : ''} onClick={() => setWaveformMode('spectrogram')}><Activity size={16} />频谱</button>
+                    </div>
+                  </article>
+                </div>
+              </>
+            )}
+
+            {activePage === 'structure' && (
+              <>
+                <div className="feature-page-header">
+                  <div className="page-icon"><Layers3 size={24} /></div>
+                  <div><span className="eyebrow">Musical structure</span><h1>节拍与结构</h1><p>首拍移动时，后续所有小节和速度切换点都会同步重算。</p></div>
+                  <button className="filled-button" onClick={() => setActivePage('chords')}><Music2 size={17} />查看时间轴</button>
+                </div>
+                <article className="feature-card first-beat-card">
+                  <div className="card-heading"><div><span className="eyebrow">全局锚点</span><h2>第一小节 · 第一拍</h2></div><strong>{firstBeatOffset.toFixed(3)} s</strong></div>
+                  <div className="anchor-slider">
+                    <span>0:00</span>
+                    <input aria-label="拖动首拍时间" max={analysis.duration} min="0" step="0.001" type="range" value={firstBeatOffset} onChange={(event) => applyFirstBeatOffset(Number(event.target.value))} />
+                    <span>{formatTime(analysis.duration)}</span>
+                  </div>
+                  <p>拖动这个锚点不会移动音频；它会整体平移后续拍点、小节线与速度段。</p>
+                </article>
+                <div className="tempo-page-list">
+                  {tempoMarkers.map((marker, index) => (
+                    <article className="tempo-page-item" key={marker.id}>
+                      <div className="tempo-index">{index + 1}</div>
+                      <div className="tempo-position"><strong>第 {marker.startBar} 小节</strong><span>{formatTime(marker.startTime, true)}</span></div>
+                      <label><span>BPM</span><input max="300" min="20" type="number" value={marker.bpm} onChange={(event) => updateTempoMarker(marker.id, { bpm: Number(event.target.value) })} /></label>
+                      <label><span>拍数</span><input max="16" min="1" type="number" value={marker.numerator} onChange={(event) => updateTempoMarker(marker.id, { numerator: Number(event.target.value) })} /></label>
+                      <label>
+                        <span>拍值</span>
+                        <MaterialSelect ariaLabel={`第 ${marker.startBar} 小节拍值`} onChange={(value) => updateTempoMarker(marker.id, { denominator: Number(value) })} options={['2', '4', '8', '16'].map((value) => ({ value, label: value }))} value={String(marker.denominator)} />
+                      </label>
+                    </article>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {activePage === 'notes' && (
+              <>
+                <div className="feature-page-header">
+                  <div className="page-icon"><MessageCircle size={24} /></div>
+                  <div><span className="eyebrow">Timeline notes</span><h1>时间备注</h1><p>为当前播放位置记录听感、演奏或校对信息。</p></div>
+                </div>
+                <article className="feature-card note-composer">
+                  <div className="note-time"><span>记录位置</span><strong>{formatTime(currentTime, true)}</strong></div>
+                  <textarea placeholder="写下这一刻的音乐备注…" value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} />
+                  <button className="filled-button" disabled={!noteDraft.trim()} onClick={() => {
+                    if (!noteDraft.trim()) return
+                    setNotes((current) => [...current, { id: crypto.randomUUID(), time: currentTime, text: noteDraft.trim() }].sort((a, b) => a.time - b.time))
+                    setNoteDraft('')
+                  }}><Plus size={16} />添加备注</button>
+                </article>
+                <div className="notes-list">
+                  {notes.map((note) => (
+                    <article className="note-item" key={note.id}>
+                      <button className="note-timestamp" onClick={() => { seek(note.time); setActivePage('chords') }}><Play size={12} />{formatTime(note.time, true)}</button>
+                      <p>{note.text}</p>
+                      <button className="icon-button" aria-label="删除备注" onClick={() => setNotes((current) => current.filter((item) => item.id !== note.id))}><Trash2 size={15} /></button>
+                    </article>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {activePage === 'settings' && (
+              <>
+                <div className="feature-page-header">
+                  <div className="page-icon"><Settings2 size={24} /></div>
+                  <div><span className="eyebrow">Project preferences</span><h1>项目设置</h1><p>设置默认调性、吸附精度和导出格式。</p></div>
+                </div>
+                <div className="settings-grid">
+                  <article className="feature-card setting-card">
+                    <div><strong>默认调性</strong><span>用于罗马数字与新增和弦</span></div>
+                    <div className="setting-row">
+                      <MaterialSelect ariaLabel="设置根音" onChange={setKeyRoot} options={ROOTS.map((root) => ({ value: root, label: root }))} value={keyRoot} />
+                      <MaterialSelect ariaLabel="设置调式" onChange={(value) => setKeyMode(value as 'major' | 'minor')} options={[{ value: 'major', label: '大调' }, { value: 'minor', label: '小调' }]} value={keyMode} />
+                    </div>
+                  </article>
+                  <article className="feature-card setting-card">
+                    <div><strong>时间轴吸附</strong><span>拖动与调整时长的最小网格</span></div>
+                    <MaterialSelect ariaLabel="设置网格" onChange={(value) => setGridDivision(Number(value) as GridDivision)} options={[{ value: '1', label: '1/4 拍' }, { value: '2', label: '1/8 拍' }, { value: '4', label: '1/16 拍' }, { value: '8', label: '1/32 拍' }]} value={String(gridDivision)} />
+                  </article>
+                  <article className="feature-card setting-card">
+                    <div><strong>ChordTag Standard 1.0</strong><span>包含速度图、调性、和弦与置信度</span></div>
+                    <button className="outlined-wide" onClick={exportAnnotations}><Download size={16} />导出 JSON</button>
+                  </article>
+                  <article className="feature-card setting-card">
+                    <div><strong>本地自动保存</strong><span>标注只保存在此浏览器，不会上传</span></div>
+                    <span className="status-pill"><BadgeCheck size={15} />已启用</span>
+                  </article>
+                </div>
+              </>
+            )}
+          </motion.section>
+        )}
       </main>
 
       <aside className="inspector-panel">
-        <ChordInspector chord={selectedChord} keyMode={keyMode} keyRoot={keyRoot} onClose={() => setInspectorOpen(false)} onDelete={deleteSelected} onUpdate={updateSelected} />
+        {activePage === 'chords' ? (
+          <ChordInspector chord={selectedChord} keyMode={keyMode} keyRoot={keyRoot} onClose={() => setInspectorOpen(false)} onDelete={deleteSelected} onUpdate={updateSelected} />
+        ) : (
+          <div className="side-page-summary">
+            <span className="eyebrow">项目概览</span>
+            <h2>{analysis.name.replace(/\.[^/.]+$/, '')}</h2>
+            <div className="summary-stat"><span>音频时长</span><strong>{formatTime(analysis.duration, true)}</strong></div>
+            <div className="summary-stat"><span>和弦片段</span><strong>{chords.length}</strong></div>
+            <div className="summary-stat"><span>速度段</span><strong>{tempoMarkers.length}</strong></div>
+            <div className="summary-stat"><span>时间备注</span><strong>{notes.length}</strong></div>
+            <button className="outlined-wide" onClick={() => setActivePage('chords')}><Music2 size={16} />返回和弦时间轴</button>
+          </div>
+        )}
       </aside>
 
       <AnimatePresence>
-        {inspectorOpen && (
+        {inspectorOpen && activePage === 'chords' && (
           <>
             <motion.button animate={{ opacity: 1 }} className="mobile-scrim" exit={{ opacity: 0 }} initial={{ opacity: 0 }} onClick={() => setInspectorOpen(false)} />
             <motion.aside

@@ -90,6 +90,11 @@ interface TimelineNote {
   text: string
 }
 
+interface MarqueeSelection {
+  start: number
+  current: number
+}
+
 function removeChordOverlaps(items: ChordAnnotation[]) {
   let cursor = 0
   return [...items]
@@ -385,6 +390,8 @@ export default function App() {
   })
   const [history, setHistory] = useState<HistoryState>({ past: [], future: [] })
   const [selectedId, setSelectedId] = useState<string | undefined>('chord-3')
+  const [selectedIds, setSelectedIds] = useState<string[]>(['chord-3'])
+  const [marquee, setMarquee] = useState<MarqueeSelection | null>(null)
   const [tool, setTool] = useState<EditorTool>('select')
   const [pixelsPerSecond, setPixelsPerSecond] = useState(108)
   const [scrollLeft, setScrollLeft] = useState(0)
@@ -442,6 +449,11 @@ export default function App() {
     setChords(removeChordOverlaps(next))
   }, [chords])
 
+  const selectOnly = useCallback((id: string) => {
+    setSelectedId(id)
+    setSelectedIds([id])
+  }, [])
+
   const updateSelected = useCallback((patch: Partial<ChordAnnotation>) => {
     if (!selectedId) return
     commitAnnotations(chords.map((chord) =>
@@ -450,10 +462,24 @@ export default function App() {
   }, [chords, commitAnnotations, selectedId])
 
   const deleteSelected = useCallback(() => {
-    if (!selectedId) return
-    commitAnnotations(chords.filter((chord) => chord.id !== selectedId))
+    const ids = selectedIds.length ? selectedIds : selectedId ? [selectedId] : []
+    if (!ids.length) return
+    const deleting = new Set(ids)
+    commitAnnotations(chords.filter((chord) => !deleting.has(chord.id)))
     setSelectedId(undefined)
-  }, [chords, commitAnnotations, selectedId])
+    setSelectedIds([])
+    setInspectorOpen(false)
+  }, [chords, commitAnnotations, selectedId, selectedIds])
+
+  const deleteChord = useCallback((id: string) => {
+    commitAnnotations(chords.filter((chord) => chord.id !== id))
+    const remainingSelection = selectedIds.filter((selected) => selected !== id)
+    setSelectedIds(remainingSelection)
+    if (selectedId === id) {
+      setSelectedId(remainingSelection[0])
+      if (!remainingSelection.length) setInspectorOpen(false)
+    }
+  }, [chords, commitAnnotations, selectedId, selectedIds])
 
   const addChordAt = useCallback((time: number) => {
     const marker = [...grid].reverse().find((item) => item.time <= time) ?? grid[0]
@@ -464,7 +490,7 @@ export default function App() {
     const sorted = [...chords].sort((a, b) => a.start - b.start)
     const exact = sorted.find((item) => Math.abs(item.start - start) < 0.01)
     if (exact) {
-      setSelectedId(exact.id)
+      selectOnly(exact.id)
       setInspectorOpen(true)
       return
     }
@@ -482,7 +508,7 @@ export default function App() {
     if (duration < minimum) {
       const neighbor = next ?? previous
       if (neighbor) {
-        setSelectedId(neighbor.id)
+        selectOnly(neighbor.id)
         setInspectorOpen(true)
       }
       return
@@ -502,9 +528,9 @@ export default function App() {
         : [item])
       : [...chords, chord]
     commitAnnotations(nextChords.sort((a, b) => a.start - b.start))
-    setSelectedId(chord.id)
+    selectOnly(chord.id)
     setInspectorOpen(true)
-  }, [analysis.duration, chords, commitAnnotations, grid, gridDivision, keyMode, keyRoot])
+  }, [analysis.duration, chords, commitAnnotations, grid, gridDivision, keyMode, keyRoot, selectOnly])
 
   const undo = useCallback(() => {
     const previous = history.past.at(-1)
@@ -659,6 +685,40 @@ export default function App() {
     document.addEventListener('pointerup', onUp)
   }
 
+  const beginMarquee = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (tool !== 'select' || event.button !== 0) return
+    const target = event.target as HTMLElement
+    if (target.closest('.chord-block') || target.closest('.lane-title')) return
+    event.preventDefault()
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const start = Math.max(0, Math.min(timelineWidth, event.clientX - bounds.left))
+    const additive = event.shiftKey || event.metaKey || event.ctrlKey
+    let current = start
+    setMarquee({ start, current })
+
+    const onMove = (moveEvent: PointerEvent) => {
+      current = Math.max(0, Math.min(timelineWidth, moveEvent.clientX - bounds.left))
+      setMarquee({ start, current })
+    }
+    const onUp = () => {
+      const from = Math.min(start, current) / pixelsPerSecond
+      const to = Math.max(start, current) / pixelsPerSecond
+      const matches = Math.abs(current - start) < 4
+        ? []
+        : chords
+          .filter((chord) => chord.start < to && chord.start + chord.duration > from)
+          .map((chord) => chord.id)
+      const next = additive ? [...new Set([...selectedIds, ...matches])] : matches
+      setSelectedIds(next)
+      setSelectedId(next[0])
+      setMarquee(null)
+      document.removeEventListener('pointermove', onMove)
+      document.removeEventListener('pointerup', onUp)
+    }
+    document.addEventListener('pointermove', onMove)
+    document.addEventListener('pointerup', onUp)
+  }
+
   const beginChordDrag = (
     event: ReactPointerEvent,
     chord: ChordAnnotation,
@@ -667,7 +727,12 @@ export default function App() {
     if (tool !== 'select') return
     event.stopPropagation()
     event.preventDefault()
-    setSelectedId(chord.id)
+    if (
+      !selectedIds.includes(chord.id)
+      && !event.shiftKey
+      && !event.metaKey
+      && !event.ctrlKey
+    ) selectOnly(chord.id)
     const pointerStart = event.clientX
     const original = chords
     const minDuration = grid.length > 1 ? Math.max(0.08, grid[1].time - grid[0].time) : 0.12
@@ -873,6 +938,21 @@ export default function App() {
             <span className="toolbar-divider" />
             <ToolButton label="撤销" onClick={undo}><Undo2 size={18} /></ToolButton>
             <ToolButton label="重做" onClick={redo}><Redo2 size={18} /></ToolButton>
+            <AnimatePresence>
+              {selectedIds.length > 0 && (
+                <motion.div
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="selection-actions"
+                  exit={{ opacity: 0, scale: 0.96 }}
+                  initial={{ opacity: 0, scale: 0.96 }}
+                >
+                  <span>已选 {selectedIds.length}</span>
+                  <button aria-label="删除选中的和弦" onClick={deleteSelected} title="删除选中项">
+                    <Trash2 size={15} />
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
           <div className="context-controls">
@@ -1026,15 +1106,14 @@ export default function App() {
               </div>
 
               <div className="waveform-row">
-                <div className="waveform-sticky" style={{ width: viewportWidth }}>
-                  <WaveformCanvas
-                    analysis={analysis}
-                    mode={waveformMode}
-                    onSeek={seek}
-                    pixelsPerSecond={pixelsPerSecond}
-                    scrollContainerRef={scrollerRef}
-                  />
-                </div>
+                <WaveformCanvas
+                  analysis={analysis}
+                  mode={waveformMode}
+                  onSeek={seek}
+                  pixelsPerSecond={pixelsPerSecond}
+                  scrollContainerRef={scrollerRef}
+                  timelineWidth={timelineWidth}
+                />
                 {waveformMode === 'spectrogram' && (
                   <div className="frequency-labels">
                     <span>12k</span><span>1k</span><span>100</span>
@@ -1042,10 +1121,14 @@ export default function App() {
                 )}
               </div>
 
-              <div className="chord-lane" onDoubleClick={(event) => {
-                const bounds = event.currentTarget.getBoundingClientRect()
-                addChordAt((event.clientX - bounds.left) / pixelsPerSecond)
-              }}>
+              <div
+                className="chord-lane"
+                onDoubleClick={(event) => {
+                  const bounds = event.currentTarget.getBoundingClientRect()
+                  addChordAt((event.clientX - bounds.left) / pixelsPerSecond)
+                }}
+                onPointerDown={beginMarquee}
+              >
                 <div className="lane-title">
                   <Music2 size={15} />
                   <span>和弦</span>
@@ -1064,21 +1147,38 @@ export default function App() {
                 {chords.map((chord) => {
                   const numeral = romanNumeral(keyRoot, keyMode, chord)
                   return (
-                    <motion.button
+                    <motion.div
                       animate={{ opacity: 1, scale: 1 }}
-                      className={`chord-block ${chord.color} ${selectedId === chord.id ? 'selected' : ''}`}
+                      className={`chord-block ${chord.color} ${selectedIds.includes(chord.id) ? 'selected' : ''}`}
                       initial={{ opacity: 0, scale: 0.96 }}
                       key={chord.id}
                       onClick={(event) => {
                         event.stopPropagation()
-                        setSelectedId(chord.id)
+                        if (event.shiftKey || event.metaKey || event.ctrlKey) {
+                          const next = selectedIds.includes(chord.id)
+                            ? selectedIds.filter((id) => id !== chord.id)
+                            : [...selectedIds, chord.id]
+                          setSelectedIds(next)
+                          setSelectedId(next.includes(chord.id) ? chord.id : next[0])
+                        } else {
+                          selectOnly(chord.id)
+                        }
                         setInspectorOpen(true)
                       }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          selectOnly(chord.id)
+                          setInspectorOpen(true)
+                        }
+                      }}
                       onPointerDown={(event) => beginChordDrag(event, chord, 'move')}
+                      role="button"
                       style={{
                         left: chord.start * pixelsPerSecond,
                         width: Math.max(18, chord.duration * pixelsPerSecond - 3),
                       }}
+                      tabIndex={0}
                     >
                       <span
                         className="resize-handle start"
@@ -1090,9 +1190,33 @@ export default function App() {
                         className="resize-handle end"
                         onPointerDown={(event) => beginChordDrag(event, chord, 'end')}
                       />
-                    </motion.button>
+                      <button
+                        aria-label={`删除 ${chordName(chord)}`}
+                        className="chord-delete"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          deleteChord(chord.id)
+                        }}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        title="删除和弦"
+                        type="button"
+                      >
+                        <X size={12} />
+                      </button>
+                    </motion.div>
                   )
                 })}
+                {marquee && (
+                  <div
+                    className="marquee-selection"
+                    style={{
+                      left: Math.min(marquee.start, marquee.current),
+                      width: Math.abs(marquee.current - marquee.start),
+                    }}
+                  >
+                    <span>选择范围</span>
+                  </div>
+                )}
               </div>
 
               <div className="timeline-grid" aria-hidden>

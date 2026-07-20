@@ -881,6 +881,43 @@ input[type="range"] {
   pointer-events: none;
 }
 
+.time-selection {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  bottom: 0;
+  min-width: 2px;
+  border-right: 1px solid #5f4bb6;
+  border-left: 1px solid #5f4bb6;
+  background: rgba(103, 80, 164, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+  pointer-events: none;
+}
+
+.time-selection > span {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  color: #fff;
+  background: rgba(79, 55, 139, 0.92);
+  box-shadow: 0 3px 10px rgba(52, 36, 86, 0.18);
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.time-selection > span b {
+  padding-left: 7px;
+  border-left: 1px solid rgba(255, 255, 255, 0.3);
+  font-size: 8px;
+}
+
 .frequency-labels {
   position: sticky;
   z-index: 4;
@@ -1243,6 +1280,48 @@ input[type="range"] {
 
 .transport-center svg {
   color: #9c83d6;
+}
+
+.time-selection-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 10px;
+  background: #f0e9fa;
+}
+
+.time-selection-actions > strong {
+  padding: 0 6px;
+  color: #594184;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.time-selection-actions button {
+  display: flex;
+  height: 27px;
+  align-items: center;
+  gap: 3px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 8px;
+  color: #5f5666;
+  background: transparent;
+  font-size: 8px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.time-selection-actions button:hover,
+.time-selection-actions button.active {
+  color: #fff;
+  background: #6650a4;
+}
+
+.time-selection-actions button:hover svg,
+.time-selection-actions button.active svg {
+  color: #fff;
 }
 
 .transport-right {
@@ -2147,6 +2226,20 @@ input[type="range"] {
 
   .transport-center {
     display: none;
+  }
+
+  .transport-center.has-selection {
+    display: flex;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: center;
+    margin-top: 5px;
+  }
+
+  .time-selection-actions {
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
   }
 
   .transport-bar {

@@ -7,6 +7,7 @@ import {
   CircleHelp,
   Download,
   FileAudio,
+  Focus,
   Gauge,
   Grid2X2,
   Hand,
@@ -21,6 +22,7 @@ import {
   Play,
   Plus,
   Redo2,
+  Repeat2,
   Save,
   Search,
   Settings2,
@@ -93,6 +95,11 @@ interface TimelineNote {
 interface MarqueeSelection {
   start: number
   current: number
+}
+
+interface TimeRange {
+  start: number
+  end: number
 }
 
 function removeChordOverlaps(items: ChordAnnotation[]) {
@@ -392,6 +399,9 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | undefined>('chord-3')
   const [selectedIds, setSelectedIds] = useState<string[]>(['chord-3'])
   const [marquee, setMarquee] = useState<MarqueeSelection | null>(null)
+  const [timeSelection, setTimeSelection] = useState<TimeRange | null>(null)
+  const [loopSelection, setLoopSelection] = useState(false)
+  const [rangePlayback, setRangePlayback] = useState(false)
   const [tool, setTool] = useState<EditorTool>('select')
   const [pixelsPerSecond, setPixelsPerSecond] = useState(108)
   const [scrollLeft, setScrollLeft] = useState(0)
@@ -567,6 +577,7 @@ export default function App() {
       setIsPlaying(false)
       return
     }
+    setRangePlayback(false)
     const start = currentTime >= analysis.duration - 0.02 ? 0 : currentTime
     seek(start)
     playbackAnchor.current = { startedAt: performance.now(), from: start }
@@ -577,6 +588,19 @@ export default function App() {
     setIsPlaying(true)
   }, [analysis.duration, analysis.url, currentTime, isPlaying, playbackRate, seek])
 
+  const playSelectedRange = useCallback(() => {
+    if (!timeSelection) return
+    audioRef.current?.pause()
+    seek(timeSelection.start)
+    playbackAnchor.current = { startedAt: performance.now(), from: timeSelection.start }
+    if (analysis.url && audioRef.current) {
+      audioRef.current.playbackRate = playbackRate
+      void audioRef.current.play()
+    }
+    setRangePlayback(true)
+    setIsPlaying(true)
+  }, [analysis.url, playbackRate, seek, timeSelection])
+
   useEffect(() => {
     if (!isPlaying) return
     let frame = 0
@@ -585,6 +609,24 @@ export default function App() {
         ? audioRef.current.currentTime
         : playbackAnchor.current.from
           + ((performance.now() - playbackAnchor.current.startedAt) / 1000) * playbackRate
+      if (rangePlayback && timeSelection && next >= timeSelection.end) {
+        if (loopSelection) {
+          const start = timeSelection.start
+          if (audioRef.current) {
+            audioRef.current.currentTime = start
+            void audioRef.current.play()
+          }
+          playbackAnchor.current = { startedAt: performance.now(), from: start }
+          setCurrentTime(start)
+          frame = requestAnimationFrame(tick)
+          return
+        }
+        audioRef.current?.pause()
+        setCurrentTime(timeSelection.end)
+        setIsPlaying(false)
+        setRangePlayback(false)
+        return
+      }
       if (next >= analysis.duration) {
         setCurrentTime(analysis.duration)
         setIsPlaying(false)
@@ -595,7 +637,15 @@ export default function App() {
     }
     frame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame)
-  }, [analysis.duration, analysis.url, isPlaying, playbackRate])
+  }, [
+    analysis.duration,
+    analysis.url,
+    isPlaying,
+    loopSelection,
+    playbackRate,
+    rangePlayback,
+    timeSelection,
+  ])
 
   useEffect(() => {
     const audio = audioRef.current
@@ -642,11 +692,18 @@ export default function App() {
       } else if (event.key === 'Escape') {
         setInspectorOpen(false)
         setTempoOpen(false)
+        if (rangePlayback) {
+          audioRef.current?.pause()
+          setIsPlaying(false)
+          setRangePlayback(false)
+        }
+        setTimeSelection(null)
+        setLoopSelection(false)
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [addChordAt, currentTime, deleteSelected, redo, togglePlayback, undo])
+  }, [addChordAt, currentTime, deleteSelected, rangePlayback, redo, togglePlayback, undo])
 
   const setZoom = (nextZoom: number, anchorX = viewportWidth / 2) => {
     const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoom))
@@ -683,6 +740,102 @@ export default function App() {
     }
     document.addEventListener('pointermove', onMove)
     document.addEventListener('pointerup', onUp)
+  }
+
+  const selectChordsInRange = useCallback((range: TimeRange) => {
+    const matches = chords
+      .filter((chord) => chord.start < range.end && chord.start + chord.duration > range.start)
+      .map((chord) => chord.id)
+    setSelectedIds(matches)
+    setSelectedId(matches[0])
+    return matches
+  }, [chords])
+
+  const beginTimeSelection = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (tool !== 'select' || event.button !== 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    const scroller = scrollerRef.current
+    if (!scroller) return
+    const viewport = scroller.getBoundingClientRect()
+    const timeAtPointer = (clientX: number) => Math.max(
+      0,
+      Math.min(
+        analysis.duration,
+        (scroller.scrollLeft + clientX - viewport.left) / zoomRef.current,
+      ),
+    )
+    const start = timeAtPointer(event.clientX)
+    let current = start
+    let moved = false
+    setTimeSelection({ start, end: start })
+    setLoopSelection(false)
+
+    const onMove = (moveEvent: PointerEvent) => {
+      if (moveEvent.clientX < viewport.left + 36) {
+        scroller.scrollLeft -= Math.min(18, viewport.left + 36 - moveEvent.clientX)
+      } else if (moveEvent.clientX > viewport.right - 36) {
+        scroller.scrollLeft += Math.min(18, moveEvent.clientX - viewport.right + 36)
+      }
+      current = timeAtPointer(moveEvent.clientX)
+      moved = moved || Math.abs(current - start) * zoomRef.current > 4
+      setTimeSelection({ start: Math.min(start, current), end: Math.max(start, current) })
+    }
+    const onUp = () => {
+      document.removeEventListener('pointermove', onMove)
+      document.removeEventListener('pointerup', onUp)
+      if (!moved) {
+        setTimeSelection(null)
+        seek(start)
+        return
+      }
+      const range = { start: Math.min(start, current), end: Math.max(start, current) }
+      setTimeSelection(range)
+      selectChordsInRange(range)
+      seek(range.start)
+    }
+    document.addEventListener('pointermove', onMove)
+    document.addEventListener('pointerup', onUp)
+  }
+
+  const zoomToTimeSelection = () => {
+    if (!timeSelection || !scrollerRef.current) return
+    const duration = Math.max(0.01, timeSelection.end - timeSelection.start)
+    const nextZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, (viewportWidth - 48) / duration))
+    zoomRef.current = nextZoom
+    setPixelsPerSecond(nextZoom)
+    requestAnimationFrame(() => {
+      if (scrollerRef.current) {
+        scrollerRef.current.scrollLeft = Math.max(0, timeSelection.start * nextZoom - 24)
+      }
+    })
+  }
+
+  const createChordFromTimeSelection = () => {
+    if (!timeSelection) return
+    const start = snapTime(timeSelection.start, grid, analysis.duration)
+    const end = snapTime(timeSelection.end, grid, analysis.duration)
+    if (end - start < 0.08) return
+    const range = { start, end }
+    const intersecting = chords.filter((chord) =>
+      chord.start < range.end && chord.start + chord.duration > range.start,
+    )
+    if (intersecting.length) {
+      selectChordsInRange(range)
+      return
+    }
+    const chord: ChordAnnotation = {
+      id: `chord-${crypto.randomUUID()}`,
+      start,
+      duration: end - start,
+      root: keyRoot,
+      quality: keyMode === 'minor' ? 'min' : 'maj',
+      color: CHORD_COLORS[chords.length % CHORD_COLORS.length],
+      confidence: 1,
+    }
+    commitAnnotations([...chords, chord])
+    selectOnly(chord.id)
+    setInspectorOpen(true)
   }
 
   const beginMarquee = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -1105,15 +1258,28 @@ export default function App() {
                 ))}
               </div>
 
-              <div className="waveform-row">
+              <div className="waveform-row" onPointerDown={beginTimeSelection}>
                 <WaveformCanvas
                   analysis={analysis}
                   mode={waveformMode}
-                  onSeek={seek}
                   pixelsPerSecond={pixelsPerSecond}
                   scrollContainerRef={scrollerRef}
                   timelineWidth={timelineWidth}
                 />
+                {timeSelection && timeSelection.end > timeSelection.start && (
+                  <div
+                    className="time-selection"
+                    style={{
+                      left: timeSelection.start * pixelsPerSecond,
+                      width: (timeSelection.end - timeSelection.start) * pixelsPerSecond,
+                    }}
+                  >
+                    <span>
+                      {formatTime(timeSelection.start, true)}–{formatTime(timeSelection.end, true)}
+                      <b>{(timeSelection.end - timeSelection.start).toFixed(3)} s</b>
+                    </span>
+                  </div>
+                )}
                 {waveformMode === 'spectrogram' && (
                   <div className="frequency-labels">
                     <span>12k</span><span>1k</span><span>100</span>
@@ -1248,9 +1414,31 @@ export default function App() {
                 <span>/ {formatTime(analysis.duration, true)}</span>
               </div>
             </div>
-            <div className="transport-center">
-              <Sparkles size={15} />
-              <span>双击轨道添加 · 拖动边缘调整时长 · Ctrl + 滚轮缩放</span>
+            <div className={`transport-center ${timeSelection ? 'has-selection' : ''}`}>
+              {timeSelection ? (
+                <div className="time-selection-actions">
+                  <strong>{(timeSelection.end - timeSelection.start).toFixed(3)} s</strong>
+                  <button onClick={playSelectedRange} title="播放所选片段"><Play size={13} />播放</button>
+                  <button className={loopSelection ? 'active' : ''} onClick={() => setLoopSelection((value) => !value)} title="循环所选片段"><Repeat2 size={13} />循环</button>
+                  <button onClick={zoomToTimeSelection} title="缩放到所选范围"><Focus size={13} />适应</button>
+                  <button onClick={() => selectChordsInRange(timeSelection)} title="选择范围内的和弦"><Music2 size={13} />和弦</button>
+                  <button onClick={createChordFromTimeSelection} title="用空白所选范围创建和弦；已有和弦时改为选择"><Plus size={13} />创建</button>
+                  <button aria-label="清除时间选择" onClick={() => {
+                    if (rangePlayback) {
+                      audioRef.current?.pause()
+                      setIsPlaying(false)
+                    }
+                    setTimeSelection(null)
+                    setLoopSelection(false)
+                    setRangePlayback(false)
+                  }} title="清除范围"><X size={13} /></button>
+                </div>
+              ) : (
+                <>
+                  <Sparkles size={15} />
+                  <span>拖动波形选择片段 · 拖框选择和弦 · Ctrl + 滚轮缩放</span>
+                </>
+              )}
             </div>
             <div className="transport-right">
               <button className="rate-button" onClick={() => setPlaybackRate((rate) => rate === 1 ? 0.75 : rate === 0.75 ? 1.25 : 1)}>

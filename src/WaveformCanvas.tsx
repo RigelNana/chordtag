@@ -10,7 +10,6 @@ interface WaveformCanvasProps {
   pixelsPerSecond: number
   scrollContainerRef: RefObject<HTMLDivElement | null>
   timelineWidth: number
-  onSeek: (time: number) => void
 }
 
 function spectrogramColor(value: number) {
@@ -25,14 +24,12 @@ function WaveformTile({
   analysis,
   left,
   mode,
-  onSeek,
   pixelsPerSecond,
   width,
 }: {
   analysis: AudioAnalysis
   left: number
   mode: WaveformMode
-  onSeek: (time: number) => void
   pixelsPerSecond: number
   width: number
 }) {
@@ -118,13 +115,8 @@ function WaveformTile({
 
   return (
     <canvas
-      aria-label={mode === 'waveform' ? '音频振幅图，可点击定位' : '音频频谱图，可点击定位'}
+      aria-label={mode === 'waveform' ? '音频振幅图，可拖动选择片段' : '音频频谱图，可拖动选择片段'}
       className="waveform-tile"
-      onPointerDown={(event) => {
-        const bounds = event.currentTarget.getBoundingClientRect()
-        const time = (left + event.clientX - bounds.left) / pixelsPerSecond
-        onSeek(Math.max(0, Math.min(analysis.duration, time)))
-      }}
       ref={canvasRef}
       style={{ left, width }}
     />
@@ -137,7 +129,6 @@ export function WaveformCanvas({
   pixelsPerSecond,
   scrollContainerRef,
   timelineWidth,
-  onSeek,
 }: WaveformCanvasProps) {
   const [range, setRange] = useState({ first: 0, last: 2 })
 
@@ -186,7 +177,6 @@ export function WaveformCanvas({
             key={tile}
             left={left}
             mode={mode}
-            onSeek={onSeek}
             pixelsPerSecond={pixelsPerSecond}
             width={Math.min(TILE_WIDTH + 1, timelineWidth - left)}
           />

@@ -1645,7 +1645,7 @@ export default function App() {
             <h2>{hasAudio ? analysis.name.replace(/\.[^/.]+$/, '') : '未命名项目'}</h2>
             <div className="summary-stat"><span>音频时长</span><strong>{hasAudio ? formatTime(analysis.duration, true) : '—'}</strong></div>
             <div className="summary-stat"><span>和弦片段</span><strong>{chords.length}</strong></div>
-            <div className="summary-stat"><span>速度段</span><strong>{tempoMarkers.length}</strong></div>
+            <div className="summary-stat"><span>速度段</span><strong>{hasAudio ? tempoMarkers.length : 0}</strong></div>
             <div className="summary-stat"><span>时间备注</span><strong>{notes.length}</strong></div>
             <button className="outlined-wide" onClick={() => setActivePage('chords')}><Music2 size={16} />返回和弦时间轴</button>
           </div>

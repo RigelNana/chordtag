@@ -40,8 +40,6 @@ export const QUALITY_OPTIONS: Array<{
   { value: 'm6/9', label: '小六加九', short: 'Minor six nine', family: 'basic' },
   { value: 'add9', label: '大三加九', short: 'Add 9', family: 'basic' },
   { value: 'madd9', label: '小三加九', short: 'Minor add 9', family: 'basic' },
-  { value: 'add11', label: '大三加十一', short: 'Add 11', family: 'basic' },
-  { value: 'madd11', label: '小三加十一', short: 'Minor add 11', family: 'basic' },
   { value: '7', label: '属七和弦', short: 'Dominant 7', family: 'seventh' },
   { value: 'maj7', label: '大七和弦', short: 'Major 7', family: 'seventh' },
   { value: 'm7', label: '小七和弦', short: 'Minor 7', family: 'seventh' },
@@ -54,19 +52,21 @@ export const QUALITY_OPTIONS: Array<{
   { value: 'm9', label: '小九和弦', short: 'Minor 9', family: 'extended' },
   { value: '9sus4', label: '属九挂四', short: 'Dominant 9 sus 4', family: 'extended' },
   { value: '11', label: '属十一和弦', short: 'Dominant 11', family: 'extended' },
-  { value: 'maj11', label: '大十一和弦', short: 'Major 11', family: 'extended' },
   { value: 'm11', label: '小十一和弦', short: 'Minor 11', family: 'extended' },
   { value: '13', label: '属十三和弦', short: 'Dominant 13', family: 'extended' },
   { value: 'maj13', label: '大十三和弦', short: 'Major 13', family: 'extended' },
   { value: 'm13', label: '小十三和弦', short: 'Minor 13', family: 'extended' },
+  { value: '13sus4', label: '属十三挂四', short: 'Dominant 13 sus 4', family: 'extended' },
   { value: '7b5', label: '属七降五', short: 'Dominant 7 flat 5', family: 'altered' },
   { value: '7#5', label: '属七升五', short: 'Dominant 7 sharp 5', family: 'altered' },
   { value: '7b9', label: '属七降九', short: 'Dominant 7 flat 9', family: 'altered' },
   { value: '7#9', label: '属七升九', short: 'Dominant 7 sharp 9', family: 'altered' },
+  { value: '7#11', label: '属七升十一', short: 'Lydian dominant', family: 'altered' },
   { value: '7#5b9', label: '属七升五降九', short: 'Dominant altered', family: 'altered' },
   { value: '7#5#9', label: '属七升五升九', short: 'Dominant altered', family: 'altered' },
   { value: 'maj7#11', label: '大七升十一', short: 'Major 7 sharp 11', family: 'altered' },
-  { value: 'm11b5', label: '小十一降五', short: 'Minor 11 flat 5', family: 'altered' },
+  { value: 'maj9#11', label: '大九升十一', short: 'Major 9 sharp 11', family: 'altered' },
+  { value: 'm9b5', label: '小九降五', short: 'Minor 9 flat 5', family: 'altered' },
 ]
 
 export const QUALITY_SUFFIX: Record<ChordQuality, string> = {
@@ -85,8 +85,6 @@ export const QUALITY_SUFFIX: Record<ChordQuality, string> = {
   aug: 'aug',
   add9: 'add9',
   madd9: 'madd9',
-  add11: 'add11',
-  madd11: 'madd11',
   '6': '6',
   m6: 'm6',
   '6/9': '6/9',
@@ -97,34 +95,38 @@ export const QUALITY_SUFFIX: Record<ChordQuality, string> = {
   m9: 'm9',
   '9sus4': '9sus4',
   '11': '11',
-  maj11: 'maj11',
   m11: 'm11',
   '13': '13',
   maj13: 'maj13',
   m13: 'm13',
+  '13sus4': '13sus4',
   '7b5': '7♭5',
   '7#5': '7♯5',
   '7b9': '7♭9',
   '7#9': '7♯9',
+  '7#11': '7♯11',
   '7#5b9': '7♯5♭9',
   '7#5#9': '7♯5♯9',
   'maj7#11': 'maj7♯11',
-  m11b5: 'm11♭5',
+  'maj9#11': 'maj9♯11',
+  m9b5: 'm9♭5',
 }
 
 const TONAL_SUFFIX: Record<ChordQuality, string> = {
   ...QUALITY_SUFFIX,
   m7b5: 'm7b5',
   '6/9': '6add9',
-  'm6/9': 'm6add9',
+  'm6/9': 'm69',
   '7b5': '7b5',
   '7#5': '7#5',
   '7b9': '7b9',
   '7#9': '7#9',
+  '7#11': '7#11',
   '7#5b9': '7#5b9',
   '7#5#9': '7#5#9',
   'maj7#11': 'maj7#11',
-  m11b5: 'm11b5',
+  'maj9#11': 'maj9#11',
+  m9b5: 'm9b5',
 }
 
 export const CHORD_COLORS: ChordColor[] = ['lavender', 'mint', 'peach', 'sky', 'rose']
@@ -151,8 +153,8 @@ export function romanNumeral(
     const degree = raw.match(/^([b#]*)([IViv]+)/)
     if (!degree) return raw || '—'
     const minorDegree = [
-      'min', 'm7', 'mMaj7', 'm6', 'm6/9', 'madd9', 'madd11',
-      'm9', 'm11', 'm13', 'dim', 'dim7', 'm7b5', 'm11b5',
+      'min', 'm7', 'mMaj7', 'm6', 'm6/9', 'madd9',
+      'm9', 'm11', 'm13', 'dim', 'dim7', 'm7b5', 'm9b5',
     ]
       .includes(chord.quality)
     const suffix: Record<ChordQuality, string> = {
@@ -171,8 +173,6 @@ export function romanNumeral(
       aug: '+',
       add9: 'add9',
       madd9: 'add9',
-      add11: 'add11',
-      madd11: 'add11',
       '6': '6',
       m6: '6',
       '6/9': '6/9',
@@ -183,19 +183,21 @@ export function romanNumeral(
       m9: '9',
       '9sus4': '9sus4',
       '11': '11',
-      maj11: 'maj11',
       m11: '11',
       '13': '13',
       maj13: 'maj13',
       m13: '13',
+      '13sus4': '13sus4',
       '7b5': '7♭5',
       '7#5': '7♯5',
       '7b9': '7♭9',
       '7#9': '7♯9',
+      '7#11': '7♯11',
       '7#5b9': '7♯5♭9',
       '7#5#9': '7♯5♯9',
       'maj7#11': 'maj7♯11',
-      m11b5: '11♭5',
+      'maj9#11': 'maj9♯11',
+      m9b5: '9♭5',
     }
     const accidental = degree[1]
     const numeral = minorDegree ? degree[2].toLowerCase() : degree[2].toUpperCase()

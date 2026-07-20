@@ -1,11 +1,15 @@
-import { useEffect, useRef, type RefObject } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import type { AudioAnalysis, WaveformMode } from './types'
+
+const TILE_WIDTH = 1024
+const TILE_OVERSCAN = 1
 
 interface WaveformCanvasProps {
   analysis: AudioAnalysis
   mode: WaveformMode
   pixelsPerSecond: number
   scrollContainerRef: RefObject<HTMLDivElement | null>
+  timelineWidth: number
   onSeek: (time: number) => void
 }
 
@@ -17,27 +21,34 @@ function spectrogramColor(value: number) {
   return `hsl(${hue} ${saturation}% ${lightness}%)`
 }
 
-export function WaveformCanvas({
+function WaveformTile({
   analysis,
+  left,
   mode,
-  pixelsPerSecond,
-  scrollContainerRef,
   onSeek,
-}: WaveformCanvasProps) {
+  pixelsPerSecond,
+  width,
+}: {
+  analysis: AudioAnalysis
+  left: number
+  mode: WaveformMode
+  onSeek: (time: number) => void
+  pixelsPerSecond: number
+  width: number
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    const scroller = scrollContainerRef.current
     let frame = 0
 
     const draw = () => {
       const bounds = canvas.getBoundingClientRect()
-      const width = Math.max(1, bounds.width)
+      const canvasWidth = Math.max(1, bounds.width)
       const height = Math.max(1, bounds.height)
       const ratio = Math.min(window.devicePixelRatio || 1, 2)
-      const backingWidth = Math.round(width * ratio)
+      const backingWidth = Math.round(canvasWidth * ratio)
       const backingHeight = Math.round(height * ratio)
       if (canvas.width !== backingWidth || canvas.height !== backingHeight) {
         canvas.width = backingWidth
@@ -46,24 +57,22 @@ export function WaveformCanvas({
       const context = canvas.getContext('2d')
       if (!context) return
       context.setTransform(ratio, 0, 0, ratio, 0, 0)
-      context.clearRect(0, 0, width, height)
+      context.clearRect(0, 0, canvasWidth, height)
 
-      // Read the browser's native scroll value at paint time. This avoids the
-      // one-render delay that made a sticky waveform drift from DOM annotations.
-      const startTime = (scroller?.scrollLeft ?? 0) / pixelsPerSecond
+      const startTime = left / pixelsPerSecond
       context.fillStyle = mode === 'waveform' ? '#fbfaff' : '#f7f5fb'
-      context.fillRect(0, 0, width, height)
+      context.fillRect(0, 0, canvasWidth, height)
 
       if (mode === 'waveform') {
         const center = height / 2
         context.strokeStyle = 'rgba(94, 90, 105, .1)'
         context.beginPath()
         context.moveTo(0, center + 0.5)
-        context.lineTo(width, center + 0.5)
+        context.lineTo(canvasWidth, center + 0.5)
         context.stroke()
 
         context.fillStyle = '#8273c8'
-        for (let x = 0; x < width; x += 2) {
+        for (let x = 0; x < canvasWidth; x += 2) {
           const time = startTime + x / pixelsPerSecond
           const sample = Math.floor((time / analysis.duration) * analysis.peaks.length)
           const peak = analysis.peaks[Math.max(0, Math.min(analysis.peaks.length - 1, sample))] ?? 0
@@ -74,7 +83,7 @@ export function WaveformCanvas({
         context.globalAlpha = 1
       } else {
         const rowHeight = height / Math.max(1, analysis.spectrogram[0]?.length ?? 1)
-        for (let x = 0; x < width; x += 2) {
+        for (let x = 0; x < canvasWidth; x += 2) {
           const time = startTime + x / pixelsPerSecond
           const columnIndex = Math.floor((time / analysis.duration) * analysis.spectrogram.length)
           const column = analysis.spectrogram[
@@ -90,7 +99,7 @@ export function WaveformCanvas({
         gradient.addColorStop(0.5, 'rgba(251,250,255,0)')
         gradient.addColorStop(1, 'rgba(61,51,90,.08)')
         context.fillStyle = gradient
-        context.fillRect(0, 0, width, height)
+        context.fillRect(0, 0, canvasWidth, height)
       }
     }
 
@@ -100,27 +109,90 @@ export function WaveformCanvas({
     }
     const observer = new ResizeObserver(scheduleDraw)
     observer.observe(canvas)
-    scroller?.addEventListener('scroll', draw, { passive: true })
     draw()
     return () => {
       cancelAnimationFrame(frame)
       observer.disconnect()
-      scroller?.removeEventListener('scroll', draw)
     }
-  }, [analysis, mode, pixelsPerSecond, scrollContainerRef])
+  }, [analysis, left, mode, pixelsPerSecond])
 
   return (
     <canvas
       aria-label={mode === 'waveform' ? '音频振幅图，可点击定位' : '音频频谱图，可点击定位'}
-      className="waveform-canvas"
+      className="waveform-tile"
       onPointerDown={(event) => {
         const bounds = event.currentTarget.getBoundingClientRect()
-        const time = ((scrollContainerRef.current?.scrollLeft ?? 0) + event.clientX - bounds.left)
-          / pixelsPerSecond
+        const time = (left + event.clientX - bounds.left) / pixelsPerSecond
         onSeek(Math.max(0, Math.min(analysis.duration, time)))
       }}
       ref={canvasRef}
+      style={{ left, width }}
     />
+  )
+}
+
+export function WaveformCanvas({
+  analysis,
+  mode,
+  pixelsPerSecond,
+  scrollContainerRef,
+  timelineWidth,
+  onSeek,
+}: WaveformCanvasProps) {
+  const [range, setRange] = useState({ first: 0, last: 2 })
+
+  useEffect(() => {
+    const scroller = scrollContainerRef.current
+    if (!scroller) return
+    let frame = 0
+    const updateRange = () => {
+      const tileCount = Math.max(1, Math.ceil(timelineWidth / TILE_WIDTH))
+      const first = Math.max(0, Math.floor(scroller.scrollLeft / TILE_WIDTH) - TILE_OVERSCAN)
+      const last = Math.min(
+        tileCount - 1,
+        Math.ceil((scroller.scrollLeft + scroller.clientWidth) / TILE_WIDTH) + TILE_OVERSCAN,
+      )
+      setRange((current) => current.first === first && current.last === last
+        ? current
+        : { first, last })
+    }
+    const scheduleUpdate = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(updateRange)
+    }
+    const observer = new ResizeObserver(scheduleUpdate)
+    observer.observe(scroller)
+    scroller.addEventListener('scroll', scheduleUpdate, { passive: true })
+    scheduleUpdate()
+    return () => {
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+      scroller.removeEventListener('scroll', scheduleUpdate)
+    }
+  }, [scrollContainerRef, timelineWidth])
+
+  const tiles = Array.from(
+    { length: Math.max(0, range.last - range.first + 1) },
+    (_, index) => range.first + index,
+  )
+
+  return (
+    <div className="waveform-tiles" style={{ width: timelineWidth }}>
+      {tiles.map((tile) => {
+        const left = tile * TILE_WIDTH
+        return (
+          <WaveformTile
+            analysis={analysis}
+            key={tile}
+            left={left}
+            mode={mode}
+            onSeek={onSeek}
+            pixelsPerSecond={pixelsPerSecond}
+            width={Math.min(TILE_WIDTH + 1, timelineWidth - left)}
+          />
+        )
+      })}
+    </div>
   )
 }
 

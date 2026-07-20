@@ -1,6 +1,5 @@
 import { Chord, ChordType, Note, Progression } from '@tonaljs/tonal'
 import type {
-  AudioAnalysis,
   BeatMarker,
   ChordAnnotation,
   ChordColor,
@@ -194,33 +193,6 @@ export function snapTime(time: number, grid: BeatMarker[], duration: number) {
   return Math.max(0, Math.min(duration, nearest.time))
 }
 
-function seededNoise(index: number) {
-  const value = Math.sin(index * 12.9898 + 78.233) * 43758.5453
-  return value - Math.floor(value)
-}
-
-export function createDemoAnalysis(): AudioAnalysis {
-  const duration = 23.4
-  const peakCount = 1800
-  const peaks = Array.from({ length: peakCount }, (_, index) => {
-    const time = (index / peakCount) * duration
-    const phrase = 0.42 + 0.4 * Math.sin((time / duration) * Math.PI)
-    const pulse = 0.38 + 0.62 * Math.pow(Math.abs(Math.sin(time * Math.PI * 2)), 0.4)
-    return Math.min(0.98, (0.12 + seededNoise(index) * 0.55) * phrase * pulse)
-  })
-  const columns = 520
-  const bands = 42
-  const spectrogram = Array.from({ length: columns }, (_, column) =>
-    Array.from({ length: bands }, (_, band) => {
-      const time = (column / columns) * duration
-      const harmonic = Math.pow(Math.max(0, Math.sin((band + 2) * 0.55 + time * 1.8)), 3)
-      const lowEnergy = Math.exp(-band / 18) * (0.45 + peaks[Math.floor((column / columns) * peakCount)] * 0.7)
-      return Math.min(1, lowEnergy + harmonic * 0.32 + seededNoise(column * bands + band) * 0.08)
-    }),
-  )
-  return { duration, peaks, spectrogram, name: 'Midnight Sketch.wav' }
-}
-
 export function formatTime(seconds: number, includeMillis = false) {
   const safe = Math.max(0, seconds)
   const minutes = Math.floor(safe / 60)
@@ -229,22 +201,6 @@ export function formatTime(seconds: number, includeMillis = false) {
 }
 
 export const INITIAL_TEMPO: TempoMarker[] = [
-  { id: 'tempo-1', startTime: 0.4, startBar: 1, bpm: 118, numerator: 4, denominator: 4 },
-  { id: 'tempo-2', startTime: 8.536, startBar: 5, bpm: 96, numerator: 6, denominator: 8 },
-  { id: 'tempo-3', startTime: 16.036, startBar: 9, bpm: 126, numerator: 3, denominator: 4 },
-]
-
-export const INITIAL_CHORDS: ChordAnnotation[] = [
-  { id: 'chord-1', start: 0.4, duration: 2.034, root: 'C', quality: 'maj7', color: 'lavender', confidence: 0.98 },
-  { id: 'chord-2', start: 2.434, duration: 2.034, root: 'E', quality: 'm7', bass: 'G', color: 'mint', confidence: 0.96 },
-  { id: 'chord-3', start: 4.468, duration: 2.034, root: 'A', quality: 'm7', color: 'sky', confidence: 0.94 },
-  { id: 'chord-4', start: 6.502, duration: 2.034, root: 'F', quality: 'maj7', color: 'peach', confidence: 0.97 },
-  { id: 'chord-5', start: 8.536, duration: 1.875, root: 'D', quality: 'm7', color: 'mint', confidence: 0.91 },
-  { id: 'chord-6', start: 10.411, duration: 1.875, root: 'G', quality: '7', color: 'rose', confidence: 0.95 },
-  { id: 'chord-7', start: 12.286, duration: 1.875, root: 'C', quality: 'maj9', color: 'lavender', confidence: 0.93 },
-  { id: 'chord-8', start: 14.161, duration: 1.875, root: 'A', quality: 'm7', bass: 'C', color: 'sky', confidence: 0.9 },
-  { id: 'chord-9', start: 16.036, duration: 1.429, root: 'F', quality: 'maj7', color: 'peach', confidence: 0.96 },
-  { id: 'chord-10', start: 17.465, duration: 1.429, root: 'G', quality: '7', color: 'rose', confidence: 0.98 },
-  { id: 'chord-11', start: 18.894, duration: 2.857, root: 'C', quality: 'maj7', color: 'lavender', confidence: 0.99 },
+  { id: 'tempo-1', startTime: 0, startBar: 1, bpm: 120, numerator: 4, denominator: 4 },
 ]
 

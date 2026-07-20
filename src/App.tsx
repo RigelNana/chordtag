@@ -50,7 +50,6 @@ import {
 import { analyseAudioFile } from './audio'
 import {
   CHORD_COLORS,
-  INITIAL_CHORDS,
   INITIAL_TEMPO,
   QUALITY_FAMILIES,
   QUALITY_OPTIONS,
@@ -59,7 +58,6 @@ import {
   buildGrid,
   chordName,
   chordNotes,
-  createDemoAnalysis,
   formatTime,
   normalizeTempoMarkers,
   qualityDisplay,
@@ -67,6 +65,7 @@ import {
   snapTime,
 } from './music'
 import type {
+  AudioAnalysis,
   ChordAnnotation,
   EditorTool,
   GridDivision,
@@ -77,7 +76,14 @@ import { WaveformCanvas } from './WaveformCanvas'
 
 const MIN_ZOOM = 52
 const MAX_ZOOM = 360
-const FIRST_BEAT_OFFSET = 0.4
+const FIRST_BEAT_OFFSET = 0
+const EMPTY_ANALYSIS: AudioAnalysis = {
+  duration: 1,
+  peaks: [0],
+  spectrogram: [[0]],
+  name: '未导入音频',
+}
+const LEGACY_DEMO_CHORD_IDS = new Set(Array.from({ length: 11 }, (_, index) => `chord-${index + 1}`))
 
 type HistoryState = {
   past: ChordAnnotation[][]
@@ -383,21 +389,25 @@ function ToolButton({
 }
 
 export default function App() {
-  const [activePage, setActivePage] = useState<WorkspacePage>('chords')
-  const [analysis, setAnalysis] = useState(createDemoAnalysis)
+  const [activePage, setActivePage] = useState<WorkspacePage>('audio')
+  const [analysis, setAnalysis] = useState<AudioAnalysis>(EMPTY_ANALYSIS)
+  const [hasAudio, setHasAudio] = useState(false)
   const [waveformMode, setWaveformMode] = useState<WaveformMode>('waveform')
   const [chords, setChords] = useState<ChordAnnotation[]>(() => {
     const saved = localStorage.getItem('chordtag-annotations')
-    if (!saved) return INITIAL_CHORDS
+    if (!saved) return []
     try {
-      return removeChordOverlaps(JSON.parse(saved) as ChordAnnotation[])
+      const parsed = JSON.parse(saved) as ChordAnnotation[]
+      const isLegacyDemo = parsed.length === LEGACY_DEMO_CHORD_IDS.size
+        && parsed.every((chord) => LEGACY_DEMO_CHORD_IDS.has(chord.id))
+      return isLegacyDemo ? [] : removeChordOverlaps(parsed)
     } catch {
-      return INITIAL_CHORDS
+      return []
     }
   })
   const [history, setHistory] = useState<HistoryState>({ past: [], future: [] })
-  const [selectedId, setSelectedId] = useState<string | undefined>('chord-3')
-  const [selectedIds, setSelectedIds] = useState<string[]>(['chord-3'])
+  const [selectedId, setSelectedId] = useState<string | undefined>()
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [marquee, setMarquee] = useState<MarqueeSelection | null>(null)
   const [timeSelection, setTimeSelection] = useState<TimeRange | null>(null)
   const [loopSelection, setLoopSelection] = useState(false)
@@ -406,7 +416,7 @@ export default function App() {
   const [pixelsPerSecond, setPixelsPerSecond] = useState(108)
   const [scrollLeft, setScrollLeft] = useState(0)
   const [viewportWidth, setViewportWidth] = useState(900)
-  const [currentTime, setCurrentTime] = useState(4.468)
+  const [currentTime, setCurrentTime] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [volume, setVolume] = useState(0.82)
   const [playbackRate, setPlaybackRate] = useState(1)
@@ -421,9 +431,10 @@ export default function App() {
   const [saveState, setSaveState] = useState<'saved' | 'saving'>('saved')
   const [notes, setNotes] = useState<TimelineNote[]>(() => {
     const saved = localStorage.getItem('chordtag-notes')
-    if (!saved) return [{ id: 'note-1', time: 8.536, text: '这里进入 6/8，注意和弦呼吸感。' }]
+    if (!saved) return []
     try {
-      return JSON.parse(saved) as TimelineNote[]
+      const parsed = JSON.parse(saved) as TimelineNote[]
+      return parsed.length === 1 && parsed[0]?.id === 'note-1' ? [] : parsed
     } catch {
       return []
     }
@@ -992,6 +1003,8 @@ export default function App() {
       const next = await analyseAudioFile(file, setImportProgress)
       if (analysis.url) URL.revokeObjectURL(analysis.url)
       setAnalysis(next)
+      setHasAudio(true)
+      setActivePage('chords')
       setCurrentTime(0)
       setScrollLeft(0)
       if (scrollerRef.current) scrollerRef.current.scrollLeft = 0
@@ -1051,12 +1064,12 @@ export default function App() {
           <span className="standard-badge">STANDARD 1.0</span>
         </div>
         <div className="project-heading">
-          <span>{analysis.name.replace(/\.[^/.]+$/, '')}</span>
-          <span className={`save-state ${saveState}`}><Save size={13} />{saveState === 'saved' ? '已保存到本机' : '保存中'}</span>
+          <span>{hasAudio ? analysis.name.replace(/\.[^/.]+$/, '') : '未命名项目'}</span>
+          <span className={`save-state ${saveState}`}><Save size={13} />{hasAudio ? saveState === 'saved' ? '已保存到本机' : '保存中' : '等待导入音频'}</span>
         </div>
         <div className="header-actions">
           <button className="text-button subtle"><CircleHelp size={17} /><span>帮助</span></button>
-          <button className="filled-button" onClick={exportAnnotations}>
+          <button className="filled-button" disabled={!hasAudio} onClick={exportAnnotations}>
             <Download size={17} />
             <span>导出标注</span>
           </button>
@@ -1078,7 +1091,7 @@ export default function App() {
       </aside>
 
       <main className="workspace">
-        {activePage === 'chords' ? (
+        {activePage === 'chords' && hasAudio ? (
           <>
         <div className="workspace-toolbar">
           <div className="tool-cluster">
@@ -1463,14 +1476,26 @@ export default function App() {
             initial={{ opacity: 0, y: 8 }}
             key={activePage}
           >
+            {!hasAudio && ['chords', 'structure', 'notes'].includes(activePage) && (
+              <div className="empty-project-state">
+                <div className="empty-project-icon"><AudioLines size={32} /></div>
+                <span className="eyebrow">Empty project</span>
+                <h1>先导入一段音频</h1>
+                <p>项目目前没有默认音频或和弦。导入后即可使用时间轴、结构和备注功能。</p>
+                <button className="filled-button" onClick={() => fileInputRef.current?.click()}><Upload size={17} />选择音频文件</button>
+              </div>
+            )}
+
             {activePage === 'audio' && (
               <>
                 <div className="feature-page-header">
                   <div className="page-icon"><FileAudio size={24} /></div>
                   <div><span className="eyebrow">Audio workspace</span><h1>音频与分析</h1><p>管理源音频，并检查当前振幅与频谱分析结果。</p></div>
-                  <button className="filled-button" onClick={() => fileInputRef.current?.click()}><Upload size={17} />替换音频</button>
+                  <button className="filled-button" onClick={() => fileInputRef.current?.click()}><Upload size={17} />{hasAudio ? '替换音频' : '导入音频'}</button>
                 </div>
                 <div className="feature-grid">
+                  {hasAudio ? (
+                    <>
                   <article className="feature-card source-card">
                     <span className="eyebrow">当前音频</span>
                     <div className="audio-file-row">
@@ -1499,11 +1524,26 @@ export default function App() {
                       <button className={waveformMode === 'spectrogram' ? 'active' : ''} onClick={() => setWaveformMode('spectrogram')}><Activity size={16} />频谱</button>
                     </div>
                   </article>
+                    </>
+                  ) : (
+                    <article className="feature-card empty-audio-card">
+                      <div className="empty-audio-visual">
+                        <AudioLines size={34} />
+                        <span />
+                        <span />
+                        <span />
+                      </div>
+                      <span className="eyebrow">尚未导入</span>
+                      <h2>从本机选择音频开始</h2>
+                      <p>支持浏览器可解码的 WAV、MP3、M4A、AAC 和 OGG。文件只在本机分析，不会上传。</p>
+                      <button className="filled-button" onClick={() => fileInputRef.current?.click()}><Upload size={17} />选择音频文件</button>
+                    </article>
+                  )}
                 </div>
               </>
             )}
 
-            {activePage === 'structure' && (
+            {activePage === 'structure' && hasAudio && (
               <>
                 <div className="feature-page-header">
                   <div className="page-icon"><Layers3 size={24} /></div>
@@ -1536,7 +1576,7 @@ export default function App() {
               </>
             )}
 
-            {activePage === 'notes' && (
+            {activePage === 'notes' && hasAudio && (
               <>
                 <div className="feature-page-header">
                   <div className="page-icon"><MessageCircle size={24} /></div>
@@ -1583,7 +1623,7 @@ export default function App() {
                   </article>
                   <article className="feature-card setting-card">
                     <div><strong>ChordTag Standard 1.0</strong><span>包含速度图、调性、和弦与置信度</span></div>
-                    <button className="outlined-wide" onClick={exportAnnotations}><Download size={16} />导出 JSON</button>
+                    <button className="outlined-wide" disabled={!hasAudio} onClick={exportAnnotations}><Download size={16} />导出 JSON</button>
                   </article>
                   <article className="feature-card setting-card">
                     <div><strong>本地自动保存</strong><span>标注只保存在此浏览器，不会上传</span></div>
@@ -1597,13 +1637,13 @@ export default function App() {
       </main>
 
       <aside className="inspector-panel">
-        {activePage === 'chords' ? (
+        {activePage === 'chords' && hasAudio ? (
           <ChordInspector chord={selectedChord} keyMode={keyMode} keyRoot={keyRoot} onClose={() => setInspectorOpen(false)} onDelete={deleteSelected} onUpdate={updateSelected} />
         ) : (
           <div className="side-page-summary">
             <span className="eyebrow">项目概览</span>
-            <h2>{analysis.name.replace(/\.[^/.]+$/, '')}</h2>
-            <div className="summary-stat"><span>音频时长</span><strong>{formatTime(analysis.duration, true)}</strong></div>
+            <h2>{hasAudio ? analysis.name.replace(/\.[^/.]+$/, '') : '未命名项目'}</h2>
+            <div className="summary-stat"><span>音频时长</span><strong>{hasAudio ? formatTime(analysis.duration, true) : '—'}</strong></div>
             <div className="summary-stat"><span>和弦片段</span><strong>{chords.length}</strong></div>
             <div className="summary-stat"><span>速度段</span><strong>{tempoMarkers.length}</strong></div>
             <div className="summary-stat"><span>时间备注</span><strong>{notes.length}</strong></div>

@@ -52,8 +52,11 @@ import {
   CHORD_COLORS,
   INITIAL_CHORDS,
   INITIAL_TEMPO,
+  QUALITY_FAMILIES,
   QUALITY_OPTIONS,
+  QUALITY_SUFFIX,
   ROOTS,
+  type ChordFamily,
   buildGrid,
   chordName,
   chordNotes,
@@ -99,11 +102,16 @@ function ChordInspector({
   onUpdate,
 }: ChordInspectorProps) {
   const [query, setQuery] = useState('')
+  const [family, setFamily] = useState<'all' | ChordFamily>('all')
   const notes = chord ? chordNotes(chord) : []
   const numeral = chord ? romanNumeral(keyRoot, keyMode, chord) : '—'
-  const filteredQualities = QUALITY_OPTIONS.filter((option) =>
-    `${option.label} ${option.short} ${option.value}`.toLowerCase().includes(query.toLowerCase()),
-  )
+  const filteredQualities = QUALITY_OPTIONS.filter((option) => {
+    const matchesFamily = family === 'all' || option.family === family
+    const matchesQuery = `${option.label} ${option.short} ${option.value}`
+      .toLowerCase()
+      .includes(query.toLowerCase())
+    return matchesFamily && matchesQuery
+  })
 
   return (
     <div className="inspector-content">
@@ -167,7 +175,20 @@ function ChordInspector({
           <section className="inspector-section">
             <div className="section-label">
               <span>和弦性质</span>
-              <small>{filteredQualities.length} 种</small>
+              <small>{filteredQualities.length} / {QUALITY_OPTIONS.length} 种</small>
+            </div>
+            <div className="quality-filters" role="tablist" aria-label="和弦种类">
+              {QUALITY_FAMILIES.map((option) => (
+                <button
+                  aria-selected={family === option.value}
+                  className={family === option.value ? 'selected' : ''}
+                  key={option.value}
+                  onClick={() => setFamily(option.value)}
+                  role="tab"
+                >
+                  {option.label}
+                </button>
+              ))}
             </div>
             <div className="quality-list">
               {filteredQualities.map((quality) => (
@@ -176,7 +197,7 @@ function ChordInspector({
                   key={quality.value}
                   onClick={() => onUpdate({ quality: quality.value })}
                 >
-                  <span>{quality.value === 'maj' ? 'maj' : quality.value}</span>
+                  <span>{QUALITY_SUFFIX[quality.value] || 'maj'}</span>
                   <small>{quality.label}</small>
                 </button>
               ))}
@@ -812,8 +833,7 @@ export default function App() {
                     mode={waveformMode}
                     onSeek={seek}
                     pixelsPerSecond={pixelsPerSecond}
-                    playhead={currentTime}
-                    scrollLeft={scrollLeft}
+                    scrollContainerRef={scrollerRef}
                   />
                 </div>
                 {waveformMode === 'spectrogram' && (

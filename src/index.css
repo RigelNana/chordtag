@@ -1245,11 +1245,47 @@ input[type="range"] {
 
 .quality-list {
   display: grid;
-  max-height: 154px;
+  max-height: 205px;
   grid-template-columns: 1fr 1fr;
   gap: 5px;
   overflow: hidden auto;
   scrollbar-width: thin;
+}
+
+.quality-filters {
+  display: flex;
+  gap: 4px;
+  margin: -2px 0 9px;
+  padding-bottom: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.quality-filters::-webkit-scrollbar {
+  display: none;
+}
+
+.quality-filters button {
+  height: 25px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  color: #756e79;
+  background: #f1ecf3;
+  font-size: 8px;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.quality-filters button:hover {
+  color: var(--primary);
+  background: #ece4f7;
+}
+
+.quality-filters button.selected {
+  color: #fff;
+  background: var(--primary);
 }
 
 .quality-list button {

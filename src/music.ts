@@ -82,10 +82,11 @@ export function chordName(chord: Pick<ChordAnnotation, 'root' | 'quality' | 'bas
 }
 
 export function parseChordSymbol(symbol: string) {
-  const details = Chord.get(symbol)
+  const normalizedSymbol = symbol.replace(/^([A-G](?:#|b)?)M(?=\/|$)/, '$1')
+  const details = Chord.get(normalizedSymbol)
   const root = details.tonic || Note.pitchClass(details.notes[0] ?? 'C') || 'C'
-  const bassMatch = symbol.match(/\/([A-G](?:#|b)?)$/)
-  const withoutRoot = symbol.slice(root.length)
+  const bassMatch = normalizedSymbol.match(/\/([A-G](?:#|b)?)$/)
+  const withoutRoot = normalizedSymbol.slice(root.length)
   const qualityToken = bassMatch
     ? withoutRoot.slice(0, -bassMatch[0].length)
     : withoutRoot

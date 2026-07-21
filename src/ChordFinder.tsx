@@ -11,10 +11,12 @@ import {
   type ChordFamily,
 } from './music'
 import { PianoKeyboard } from './PianoKeyboard'
+import type { KeyMode } from './types'
+import { KEY_MODE_OPTIONS } from './harmony'
 
 interface ChordFinderProps {
   candidates: string[]
-  keyMode: 'major' | 'minor'
+  keyMode: KeyMode
   keyRoot: string
   onAudition: (symbol: string) => void
   onChooseQuality: (root: string, quality: string) => void
@@ -140,7 +142,7 @@ export function ChordFinder({
           <article className="harmony-facts-card">
             <div><span>结构分类</span><strong>{structureName(primary, analysis.intervals)}</strong></div>
             <div><span>和弦性质</span><strong>{analysis.quality || analysis.type || '复合结构'}</strong></div>
-            <div><span>相对 {keyRoot} {keyMode === 'major' ? '大调' : '小调'}</span><strong>{romanNumeral(keyRoot, keyMode, parsed)}</strong></div>
+            <div><span>相对 {keyRoot} {KEY_MODE_OPTIONS.find((mode) => mode.value === keyMode)?.label}</span><strong>{romanNumeral(keyRoot, keyMode, parsed)}</strong></div>
             <div><span>音程公式</span><strong>{analysis.intervals.join(' · ')}</strong></div>
             <div><span>根音 / 低音</span><strong>{parsed.root} / {parsed.bass ?? analysis.notes[0]}</strong></div>
             <div><span>同义标记</span><strong>{analysis.aliases.slice(0, 5).join(' · ') || '—'}</strong></div>

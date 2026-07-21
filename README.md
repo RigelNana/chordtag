@@ -23,9 +23,10 @@ ChordTag 是一个纯前端和弦时间轴标注工作台。它将振幅/频谱�
 
 - `timeline.firstBeatOffset` 定义音频开头到第 1 小节第 1 拍的秒数。
 - `timeline.tempoMap` 只在小节边界创建段落；每段包含起始秒、小节号、BPM、拍子分子和分母。
+- `musicalContext.keyMap` 记录按小节生效的主音与调式变化，支持大小调、教会调式、和声小调与旋律小调。
 - `annotations[].start/end` 为半开区间 `[start, end)`，避免相邻和弦边界重叠。
 - `symbol` 为可显示和弦名；`root/quality/bass` 是规范化、可计算的字段。
-- `romanNumeral` 是相对 `musicalContext` 的派生值，`confidence` 范围为 0–1。
+- `romanNumeral` 按和弦所在位置的 `keyMap` 段计算；每条标注同时保存调性上下文、调式借用和主音化分析。
 - 所有时间值以秒为单位，建议输出到小数点后六位；数组按 `start` 升序排列。
 
 完整的 JSON Schema 位于 [`public/chordtag-annotation.schema.json`](public/chordtag-annotation.schema.json)。

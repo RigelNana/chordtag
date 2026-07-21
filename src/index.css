@@ -1488,6 +1488,26 @@ input[type="range"] {
   width: 66px;
 }
 
+.transport-volume {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.transport-volume span {
+  color: #817985;
+  font-size: 7px;
+}
+
+.transport-volume.midi {
+  padding-left: 6px;
+  border-left: 1px solid #ddd6e0;
+}
+
+.transport-volume input {
+  width: 54px;
+}
+
 .rate-button {
   height: 29px;
   padding: 0 9px;
@@ -2187,7 +2207,6 @@ input[type="range"] {
   background: linear-gradient(180deg, #fff, #f4f0f4);
   cursor: pointer;
   box-shadow: inset 0 -5px 8px rgba(61, 50, 68, 0.06);
-  transition: background 100ms ease, transform 80ms ease;
 }
 
 .piano-white-keys > button:hover {
@@ -2198,11 +2217,6 @@ input[type="range"] {
   color: #fff;
   background: linear-gradient(180deg, #947bd0, #6c53aa);
   box-shadow: inset 0 -5px 8px rgba(48, 34, 81, 0.14);
-}
-
-.piano-white-keys > button:active,
-.piano-black-key:active {
-  transform: translateY(2px);
 }
 
 .piano-white-keys span {
@@ -3542,7 +3556,11 @@ input[type="range"] {
   }
 
   .transport-right input {
-    width: 48px;
+    width: 38px;
+  }
+
+  .transport-volume span {
+    display: none;
   }
 
   .project-footer > div:nth-child(2) {

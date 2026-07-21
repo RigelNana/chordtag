@@ -98,6 +98,24 @@ export function parseChordSymbol(symbol: string) {
   }
 }
 
+export function detectChordCandidates(notes: string[]) {
+  if (notes.length < 2) return []
+  const ordered = [...notes].sort((a, b) => (Note.midi(a) ?? 0) - (Note.midi(b) ?? 0))
+  const bass = Note.pitchClass(ordered[0])
+  const bassChroma = Note.chroma(bass)
+  return Chord.detect(ordered)
+    .flatMap((symbol) => {
+      const parsed = parseChordSymbol(symbol)
+      const chordChromas = parsed.details.notes.map((note) => Note.chroma(note))
+      const isChordToneBass = bassChroma !== undefined && chordChromas.includes(bassChroma)
+      const isInversion = isChordToneBass && Note.chroma(parsed.root) !== bassChroma
+      if (!isInversion) return [symbol]
+      const base = `${parsed.root}${parsed.quality === 'maj' ? '' : parsed.quality}`
+      return [`${base}/${bass}`, symbol]
+    })
+    .filter((symbol, index, candidates) => candidates.indexOf(symbol) === index)
+}
+
 export function tonalChordName(chord: Pick<ChordAnnotation, 'root' | 'quality'>) {
   return `${chord.root}${LEGACY_QUALITY[chord.quality] ?? chord.quality}`
 }

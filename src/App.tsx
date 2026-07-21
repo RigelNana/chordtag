@@ -59,6 +59,7 @@ import {
   buildGrid,
   chordName,
   chordNotes,
+  detectChordCandidates,
   formatTime,
   normalizeTempoMarkers,
   parseChordSymbol,
@@ -92,10 +93,12 @@ import { PianoKeyboard } from './PianoKeyboard'
 import { WaveformCanvas } from './WaveformCanvas'
 import {
   annotationVoicing,
+  inversionVoicing,
   pitchClassesToVoicing,
   playChord,
   playChordTimeline,
   playNotes,
+  setSynthChannelVolume,
   stopChordPlayback,
 } from './synth'
 
@@ -144,6 +147,76 @@ function removeChordOverlaps(items: ChordAnnotation[]) {
       cursors.set(trackId, start + duration)
       return { ...item, start, duration, trackId }
     })
+}
+
+function rippleMoveChord(
+  items: ChordAnnotation[],
+  chord: ChordAnnotation,
+  desiredStart: number,
+  durationLimit: number,
+  fallbackTrackId: string,
+) {
+  const trackId = chord.trackId ?? fallbackTrackId
+  const track = items
+    .filter((item) => (item.trackId ?? fallbackTrackId) === trackId)
+    .sort((a, b) => a.start - b.start)
+  const others = track.filter((item) => item.id !== chord.id)
+  const boundedStart = Math.max(0, Math.min(durationLimit - chord.duration, desiredStart))
+  const insertionIndex = others.findIndex((item) => (
+    boundedStart < item.start + item.duration / 2
+  ))
+  const index = insertionIndex < 0 ? others.length : insertionIndex
+  const ordered = [...others.slice(0, index), chord, ...others.slice(index)]
+  const previousEnd = index > 0
+    ? ordered[index - 1].start + ordered[index - 1].duration
+    : 0
+  let cursor = Math.max(previousEnd, boundedStart)
+  const updates = new Map<string, ChordAnnotation>()
+  ordered.slice(index).forEach((item) => {
+    const start = item.id === chord.id ? cursor : Math.max(item.start, cursor)
+    const updated = { ...item, start }
+    updates.set(item.id, updated)
+    cursor = start + item.duration
+  })
+
+  if (cursor > durationLimit) {
+    cursor = previousEnd
+    ordered.slice(index).forEach((item) => {
+      const updated = { ...item, start: cursor }
+      updates.set(item.id, updated)
+      cursor += item.duration
+    })
+  }
+  return items.map((item) => updates.get(item.id) ?? item)
+}
+
+function rippleResizeChord(
+  items: ChordAnnotation[],
+  chord: ChordAnnotation,
+  desiredDuration: number,
+  minimumDuration: number,
+  durationLimit: number,
+  fallbackTrackId: string,
+) {
+  const trackId = chord.trackId ?? fallbackTrackId
+  const ordered = items
+    .filter((item) => (item.trackId ?? fallbackTrackId) === trackId)
+    .sort((a, b) => a.start - b.start)
+  const chordIndex = ordered.findIndex((item) => item.id === chord.id)
+  const lastEnd = ordered.reduce((end, item) => Math.max(end, item.start + item.duration), 0)
+  const maximumGrowth = Math.max(0, durationLimit - lastEnd)
+  const duration = Math.max(
+    minimumDuration,
+    Math.min(chord.duration + maximumGrowth, desiredDuration),
+  )
+  const delta = duration - chord.duration
+  const updates = new Map<string, ChordAnnotation>([
+    [chord.id, { ...chord, duration }],
+  ])
+  ordered.slice(chordIndex + 1).forEach((item) => {
+    updates.set(item.id, { ...item, start: item.start + delta })
+  })
+  return items.map((item) => updates.get(item.id) ?? item)
 }
 
 interface ChordInspectorProps {
@@ -262,6 +335,20 @@ function ChordInspector({
   const [family, setFamily] = useState<'all' | ChordFamily>('all')
   const notes = chord ? chordNotes(chord) : []
   const voicing = chord ? annotationVoicing(chord) : []
+  const inversionOptions = chord
+    ? [
+      { value: chord.root, label: `原位 · ${chord.root}` },
+      ...notes
+        .filter((note) => Note.chroma(note) !== Note.chroma(chord.root))
+        .map((note, index) => ({
+          value: Note.pitchClass(note),
+          label: `第 ${index + 1} 转位 · ${chord.root}/${Note.pitchClass(note)}`,
+        })),
+      ...(chord.bass && !notes.some((note) => Note.chroma(note) === Note.chroma(chord.bass))
+        ? [{ value: chord.bass, label: `自定义低音 · ${chord.root}/${chord.bass}` }]
+        : []),
+    ]
+    : []
   const numeral = chord ? romanNumeral(keyRoot, keyMode, chord) : '—'
   const filteredQualities = QUALITY_OPTIONS.filter((option) => {
     const matchesFamily = family === 'all' || option.family === family
@@ -355,7 +442,10 @@ function ChordInspector({
                 <button
                   className={chord.root === root ? 'selected' : ''}
                   key={root}
-                  onClick={() => onUpdate({ root })}
+                  onClick={() => onUpdate({
+                    root,
+                    voicing: inversionVoicing({ root, quality: chord.quality }, chord.bass),
+                  })}
                 >
                   {root.replace('#', '♯')}
                 </button>
@@ -386,7 +476,10 @@ function ChordInspector({
                 <button
                   className={chord.quality === quality.value ? 'selected' : ''}
                   key={quality.value}
-                  onClick={() => onUpdate({ quality: quality.value })}
+                  onClick={() => onUpdate({
+                    quality: quality.value,
+                    voicing: inversionVoicing({ root: chord.root, quality: quality.value }, chord.bass),
+                  })}
                 >
                   <span>{qualityDisplay(quality.value) || 'maj'}</span>
                   <small>{quality.label}</small>
@@ -395,12 +488,28 @@ function ChordInspector({
             </div>
           </section>
 
+          <section className="inspector-section inversion-section">
+            <div className="section-label"><span>转位形式</span><small>按最低和弦音排列声部</small></div>
+            <MaterialSelect
+              ariaLabel="和弦转位"
+              onChange={(bass) => onUpdate({
+                bass: bass === chord.root ? undefined : bass,
+                voicing: inversionVoicing(chord, bass),
+              })}
+              options={inversionOptions}
+              value={chord.bass ?? chord.root}
+            />
+          </section>
+
           <section className="inspector-section two-column-fields">
             <label>
-              <span>低音（斜线和弦）</span>
+              <span>自定义斜线低音</span>
               <MaterialSelect
                 ariaLabel="低音（斜线和弦）"
-                onChange={(value) => onUpdate({ bass: value || undefined })}
+                onChange={(value) => onUpdate({
+                  bass: value || undefined,
+                  voicing: value ? inversionVoicing(chord, value) : inversionVoicing(chord),
+                })}
                 options={[
                   { value: '', label: '无' },
                   ...ROOTS.map((root) => ({ value: root, label: root })),
@@ -585,7 +694,7 @@ export default function App() {
     ))
   }
   const pianoCandidates = useMemo(
-    () => pianoNotes.length > 1 ? TonalChord.detect(pianoNotes).slice(0, 8) : [],
+    () => detectChordCandidates(pianoNotes).slice(0, 8),
     [pianoNotes],
   )
   const selectedChord = chords.find((chord) => chord.id === selectedId)
@@ -665,10 +774,33 @@ export default function App() {
 
   const updateSelected = useCallback((patch: Partial<ChordAnnotation>) => {
     if (!selectedId) return
+    const selected = chords.find((chord) => chord.id === selectedId)
+    if (!selected) return
+    if (patch.start !== undefined) {
+      commitAnnotations(rippleMoveChord(
+        chords,
+        selected,
+        snapTime(patch.start, grid, analysis.duration),
+        analysis.duration,
+        tracks[0]?.id ?? 'track-1',
+      ))
+      return
+    }
+    if (patch.duration !== undefined) {
+      commitAnnotations(rippleResizeChord(
+        chords,
+        selected,
+        patch.duration,
+        0.08,
+        analysis.duration,
+        tracks[0]?.id ?? 'track-1',
+      ))
+      return
+    }
     commitAnnotations(chords.map((chord) =>
       chord.id === selectedId ? { ...chord, ...patch } : chord,
     ))
-  }, [chords, commitAnnotations, selectedId])
+  }, [analysis.duration, chords, commitAnnotations, grid, selectedId, tracks])
 
   const deleteSelected = useCallback(() => {
     const ids = selectedIds.length ? selectedIds : selectedId ? [selectedId] : []
@@ -846,7 +978,7 @@ export default function App() {
       return
     }
     setIsChordPlayback(true)
-    void playChordTimeline(chords, tracks, currentTime, () => setIsChordPlayback(false))
+    void playChordTimeline(chords, tracks, currentTime, () => setIsChordPlayback(false), midiVolume)
   }
 
   const playSingleChordTrack = (track: ChordTrack) => {
@@ -857,6 +989,7 @@ export default function App() {
       [{ ...track, muted: false, solo: false }],
       currentTime,
       () => setIsChordPlayback(false),
+      midiVolume,
     )
   }
 
@@ -889,35 +1022,65 @@ export default function App() {
     playbackAnchor.current = { startedAt: performance.now(), from: bounded }
   }, [analysis.duration])
 
-  const togglePlayback = useCallback(() => {
+  const togglePlayback = useCallback(async () => {
     if (isPlaying) {
       audioRef.current?.pause()
+      stopChordPlayback()
       setIsPlaying(false)
+      setIsChordPlayback(false)
       return
     }
     setRangePlayback(false)
     const start = currentTime >= analysis.duration - 0.02 ? 0 : currentTime
     seek(start)
     playbackAnchor.current = { startedAt: performance.now(), from: start }
+    setIsChordPlayback(true)
+    await playChordTimeline(
+      chords,
+      tracks,
+      start,
+      () => setIsChordPlayback(false),
+      midiVolume,
+    )
     if (analysis.url && audioRef.current) {
       audioRef.current.playbackRate = playbackRate
       void audioRef.current.play()
     }
     setIsPlaying(true)
-  }, [analysis.duration, analysis.url, currentTime, isPlaying, playbackRate, seek])
+  }, [
+    analysis.duration,
+    analysis.url,
+    chords,
+    currentTime,
+    isPlaying,
+    midiVolume,
+    playbackRate,
+    seek,
+    tracks,
+  ])
 
-  const playSelectedRange = useCallback(() => {
+  const playSelectedRange = useCallback(async () => {
     if (!timeSelection) return
     audioRef.current?.pause()
+    stopChordPlayback()
     seek(timeSelection.start)
     playbackAnchor.current = { startedAt: performance.now(), from: timeSelection.start }
+    setIsChordPlayback(true)
+    await playChordTimeline(
+      chords,
+      tracks,
+      timeSelection.start,
+      () => setIsChordPlayback(false),
+      midiVolume,
+      timeSelection.end,
+    )
     if (analysis.url && audioRef.current) {
       audioRef.current.playbackRate = playbackRate
       void audioRef.current.play()
     }
     setRangePlayback(true)
     setIsPlaying(true)
-  }, [analysis.url, playbackRate, seek, timeSelection])
+  }, [analysis.url, chords, midiVolume, playbackRate, seek, timeSelection, tracks])
 
   useEffect(() => {
     if (!isPlaying) return
@@ -930,6 +1093,15 @@ export default function App() {
       if (rangePlayback && timeSelection && next >= timeSelection.end) {
         if (loopSelection) {
           const start = timeSelection.start
+          setIsChordPlayback(true)
+          void playChordTimeline(
+            chords,
+            tracks,
+            start,
+            () => setIsChordPlayback(false),
+            midiVolume,
+            timeSelection.end,
+          )
           if (audioRef.current) {
             audioRef.current.currentTime = start
             void audioRef.current.play()
@@ -940,14 +1112,17 @@ export default function App() {
           return
         }
         audioRef.current?.pause()
+        stopChordPlayback()
         setCurrentTime(timeSelection.end)
         setIsPlaying(false)
         setRangePlayback(false)
         return
       }
       if (next >= analysis.duration) {
+        stopChordPlayback()
         setCurrentTime(analysis.duration)
         setIsPlaying(false)
+        setIsChordPlayback(false)
         return
       }
       setCurrentTime(next)
@@ -958,11 +1133,14 @@ export default function App() {
   }, [
     analysis.duration,
     analysis.url,
+    chords,
     isPlaying,
     loopSelection,
+    midiVolume,
     playbackRate,
     rangePlayback,
     timeSelection,
+    tracks,
   ])
 
   useEffect(() => {
@@ -1001,6 +1179,15 @@ export default function App() {
   }, [tracks])
 
   useEffect(() => {
+    tracks.forEach((track) => {
+      setSynthChannelVolume(track.id, track.volume * midiVolume)
+      setSynthChannelVolume(`preview-${track.id}`, track.volume * midiVolume)
+    })
+    setSynthChannelVolume('preview', midiVolume)
+    setSynthChannelVolume('piano', midiVolume)
+  }, [midiVolume, tracks])
+
+  useEffect(() => {
     localStorage.setItem('chordtag-key-map', JSON.stringify(keyMarkers))
   }, [keyMarkers])
 
@@ -1025,7 +1212,9 @@ export default function App() {
         setTempoOpen(false)
         if (rangePlayback) {
           audioRef.current?.pause()
+          stopChordPlayback()
           setIsPlaying(false)
+          setIsChordPlayback(false)
           setRangePlayback(false)
         }
         setTimeSelection(null)
@@ -1232,35 +1421,45 @@ export default function App() {
       .sort((a, b) => a.start - b.start)
     const chordIndex = ordered.findIndex((item) => item.id === chord.id)
     const previous = ordered[chordIndex - 1]
-    const next = ordered[chordIndex + 1]
     const previousEnd = previous ? previous.start + previous.duration : 0
-    const nextStart = next?.start ?? analysis.duration
     let changed = false
 
     const onMove = (moveEvent: PointerEvent) => {
       const delta = (moveEvent.clientX - pointerStart) / zoomRef.current
       changed = changed || Math.abs(delta) > 0.005
       if (changed) setSaveState('saving')
-      setChords((current) => current.map((item) => {
-        if (item.id !== chord.id) return item
-        if (mode === 'move') {
-          const desired = snapTime(chord.start + delta, grid, analysis.duration)
-          const start = Math.max(previousEnd, Math.min(nextStart - chord.duration, desired))
-          return { ...item, start }
-        }
-        if (mode === 'start') {
-          const end = chord.start + chord.duration
-          const desired = snapTime(chord.start + delta, grid, analysis.duration)
-          const start = Math.max(previousEnd, Math.min(end - minDuration, desired))
-          return { ...item, start, duration: end - start }
-        }
-        const desiredEnd = Math.max(
-          chord.start + minDuration,
-          snapTime(chord.start + chord.duration + delta, grid, analysis.duration),
-        )
-        const end = Math.min(nextStart, desiredEnd)
-        return { ...item, duration: end - chord.start }
-      }))
+      if (mode === 'move') {
+        const desired = snapTime(chord.start + delta, grid, analysis.duration)
+        setChords(rippleMoveChord(
+          original,
+          chord,
+          desired,
+          analysis.duration,
+          tracks[0]?.id ?? 'track-1',
+        ))
+        return
+      }
+      if (mode === 'start') {
+        const end = chord.start + chord.duration
+        const desired = snapTime(chord.start + delta, grid, analysis.duration)
+        const start = Math.max(previousEnd, Math.min(end - minDuration, desired))
+        setChords(original.map((item) =>
+          item.id === chord.id ? { ...item, start, duration: end - start } : item,
+        ))
+        return
+      }
+      const desiredEnd = Math.max(
+        chord.start + minDuration,
+        snapTime(chord.start + chord.duration + delta, grid, analysis.duration),
+      )
+      setChords(rippleResizeChord(
+        original,
+        chord,
+        desiredEnd - chord.start,
+        minDuration,
+        analysis.duration,
+        tracks[0]?.id ?? 'track-1',
+      ))
     }
     const onUp = () => {
       document.removeEventListener('pointermove', onMove)
@@ -1963,7 +2162,9 @@ export default function App() {
                   <button aria-label="清除时间选择" onClick={() => {
                     if (rangePlayback) {
                       audioRef.current?.pause()
+                      stopChordPlayback()
                       setIsPlaying(false)
+                      setIsChordPlayback(false)
                     }
                     setTimeSelection(null)
                     setLoopSelection(false)
@@ -1981,8 +2182,8 @@ export default function App() {
               <button className="rate-button" onClick={() => setPlaybackRate((rate) => rate === 1 ? 0.75 : rate === 0.75 ? 1.25 : 1)}>
                 {playbackRate}×
               </button>
-              <Volume2 size={17} />
-              <input aria-label="音量" max="1" min="0" step="0.01" type="range" value={volume} onChange={(event) => setVolume(Number(event.target.value))} />
+              <label className="transport-volume"><Volume2 size={14} /><span>音频</span><input aria-label="原音频音量" max="1" min="0" step="0.01" type="range" value={volume} onChange={(event) => setVolume(Number(event.target.value))} /></label>
+              <label className="transport-volume midi"><Piano size={14} /><span>MIDI</span><input aria-label="和弦 MIDI 音量" max="1" min="0" step="0.01" type="range" value={midiVolume} onChange={(event) => setMidiVolume(Number(event.target.value))} /></label>
             </div>
           </div>
         </section>
@@ -2097,7 +2298,11 @@ export default function App() {
         ref={fileInputRef}
         type="file"
       />
-      {analysis.url && <audio onEnded={() => setIsPlaying(false)} ref={audioRef} src={analysis.url} />}
+      {analysis.url && <audio onEnded={() => {
+        stopChordPlayback()
+        setIsPlaying(false)
+        setIsChordPlayback(false)
+      }} ref={audioRef} src={analysis.url} />}
 
       <AnimatePresence>
         {importProgress !== null && (

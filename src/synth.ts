@@ -63,6 +63,25 @@ export function annotationVoicing(chord: ChordAnnotation) {
     : [Midi.midiToNoteName(bassMidi, { sharps: true }), ...voiced]
 }
 
+export function inversionVoicing(
+  chord: Pick<ChordAnnotation, 'root' | 'quality'>,
+  bass?: string,
+) {
+  const pitchClasses = chordNotes(chord)
+  if (!bass || Note.chroma(bass) === Note.chroma(chord.root)) {
+    return pitchClassesToVoicing(pitchClasses)
+  }
+  const inversionIndex = pitchClasses.findIndex((note) => Note.chroma(note) === Note.chroma(bass))
+  if (inversionIndex < 0) {
+    return [
+      ...(pitchClassesToVoicing([bass], 3)),
+      ...pitchClassesToVoicing(pitchClasses),
+    ]
+  }
+  const rotated = [...pitchClasses.slice(inversionIndex), ...pitchClasses.slice(0, inversionIndex)]
+  return pitchClassesToVoicing(rotated, 3)
+}
+
 export async function playNotes(
   notes: string[],
   duration = 0.7,
@@ -96,11 +115,17 @@ export function stopChordPlayback() {
   synths.forEach((synth) => synth.releaseAll())
 }
 
+export function setSynthChannelVolume(channel: string, volume: number) {
+  synths.get(channel)?.volume.rampTo(gainToDecibels(volume), 0.04)
+}
+
 export async function playChordTimeline(
   chords: ChordAnnotation[],
   tracks: ChordTrack[],
   fromTime = 0,
   onEnded?: () => void,
+  masterVolume = 1,
+  untilTime = Number.POSITIVE_INFINITY,
 ) {
   stopChordPlayback()
   const Tone = await loadTone()
@@ -111,6 +136,7 @@ export async function playChordTimeline(
   const fallbackTrack = tracks[0]
   const events = chords
     .filter((chord) => chord.start + chord.duration > fromTime)
+    .filter((chord) => chord.start < untilTime)
     .filter((chord) => trackMap.has(chord.trackId ?? fallbackTrack?.id ?? ''))
   if (!events.length) {
     onEnded?.()
@@ -119,14 +145,21 @@ export async function playChordTimeline(
 
   const now = Tone.now() + 0.05
   const trackSynths = new Map(await Promise.all(availableTracks.map(async (track) => (
-    [track.id, await getSynth(track.id, track.volume)] as const
+    [track.id, await getSynth(track.id, track.volume * masterVolume)] as const
   ))))
   let finalTime = 0
   events.forEach((chord) => {
     const track = trackMap.get(chord.trackId ?? fallbackTrack?.id ?? '')
     if (!track) return
     const offset = Math.max(0, chord.start - fromTime)
-    const elapsedDuration = Math.max(0.08, chord.duration - Math.max(0, fromTime - chord.start))
+    const eventStart = Math.max(chord.start, fromTime)
+    const elapsedDuration = Math.max(
+      0.08,
+      Math.min(
+        chord.duration - Math.max(0, fromTime - chord.start),
+        untilTime - eventStart,
+      ),
+    )
     const synth = trackSynths.get(track.id)
     if (!synth) return
     synth.triggerAttackRelease(

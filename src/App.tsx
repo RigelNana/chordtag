@@ -919,7 +919,13 @@ export default function App() {
     }
     const parsed = parseChordSymbol(symbol)
     const voicing = pianoNotes.length
-      ? [...pianoNotes]
+      ? pianoNotes.map((note) => {
+        const spelled = parsed.details.notes.find((chordNote) =>
+          Note.chroma(chordNote) === Note.chroma(note),
+        )
+        if (!spelled) throw new Error(`${note} is not part of the selected chord candidate ${symbol}`)
+        return `${spelled}${Note.octave(note)}`
+      })
       : pitchClassesToVoicing(parsed.details.notes)
     const patch: Partial<ChordAnnotation> = {
       root: parsed.root,

@@ -98,6 +98,33 @@ export function parseChordSymbol(symbol: string) {
   }
 }
 
+export function detectChordCandidates(notes: string[]) {
+  if (notes.length < 2) return []
+  const ordered = [...notes].sort((a, b) => (Note.midi(a) ?? 0) - (Note.midi(b) ?? 0))
+  const bass = Note.pitchClass(ordered[0])
+  const bassChroma = Note.chroma(bass)
+  return Chord.detect(ordered)
+    .flatMap((symbol) => {
+      const parsed = parseChordSymbol(symbol)
+      const chordChromas = parsed.details.notes.map((note) => Note.chroma(note))
+      const isChordToneBass = bassChroma !== undefined && chordChromas.includes(bassChroma)
+      const isInversion = isChordToneBass && Note.chroma(parsed.root) !== bassChroma
+      if (!isInversion) return [symbol]
+      const base = `${parsed.root}${parsed.quality === 'maj' ? '' : parsed.quality}`
+      return [`${base}/${bass}`, symbol]
+    })
+    .filter((symbol, index, candidates) => candidates.indexOf(symbol) === index)
+    .sort((a, b) => {
+      const complexity = (symbol: string) => {
+        const parsed = parseChordSymbol(symbol)
+        const alteredIntervals = parsed.details.intervals.filter((interval) => /[Ad]/.test(interval)).length
+        const explicitAlterations = (parsed.quality.match(/[#b]/g) ?? []).length
+        return alteredIntervals * 4 + explicitAlterations * 2 + parsed.quality.length / 100
+      }
+      return complexity(a) - complexity(b)
+    })
+}
+
 export function tonalChordName(chord: Pick<ChordAnnotation, 'root' | 'quality'>) {
   return `${chord.root}${LEGACY_QUALITY[chord.quality] ?? chord.quality}`
 }

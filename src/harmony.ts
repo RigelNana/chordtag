@@ -1,6 +1,7 @@
 import { Chord, Note, Scale } from '@tonaljs/tonal'
 import {
   chordNotes,
+  parseChordSymbol,
   romanNumeral,
   tonalChordName,
 } from './music'
@@ -37,6 +38,17 @@ export interface VoiceLeadingResult {
   commonTones: string[]
   totalSemitones: number
   averageSemitones: number
+}
+
+export function tonicChordForKey(key: HarmonicKey) {
+  const scale = Scale.get(`${key.tonic} ${key.mode}`).notes
+  const triad = [scale[0], scale[2], scale[4]]
+  const tonicChroma = Note.chroma(key.tonic)
+  const symbol = Chord.detect(triad).find((candidate) =>
+    Note.chroma(parseChordSymbol(candidate).root) === tonicChroma,
+  )
+  if (!symbol) throw new Error(`Tonal could not derive the tonic triad for ${key.tonic} ${key.mode}`)
+  return parseChordSymbol(symbol)
 }
 
 function pitchClassSet(notes: string[]) {

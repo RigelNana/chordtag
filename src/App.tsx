@@ -83,6 +83,7 @@ import {
   analyzeAcrossKeys,
   analyzeHarmonyContext,
   analyzeVoiceLeading,
+  tonicChordForKey,
   type HarmonyContext,
   type VoiceLeadingResult,
 } from './harmony'
@@ -691,6 +692,8 @@ export default function App() {
 
   const addChordAt = useCallback((time: number, template: Partial<ChordAnnotation> = {}) => {
     const targetTrackId = template.trackId ?? activeTrackId
+    const insertionKey = keyForTime(time)
+    const tonicChord = tonicChordForKey(insertionKey)
     const marker = [...grid].reverse().find((item) => item.time <= time) ?? grid[0]
     const beatSeconds = marker ? (60 / marker.bpm) * (4 / Number(marker.meter.split('/')[1])) : 0.5
     const meterBeats = marker ? Number(marker.meter.split('/')[0]) : 4
@@ -728,8 +731,8 @@ export default function App() {
       id: `chord-${crypto.randomUUID()}`,
       start,
       duration,
-      root: template.root ?? keyRoot,
-      quality: template.quality ?? (keyMode === 'minor' ? 'min' : 'maj'),
+      root: template.root ?? tonicChord.root,
+      quality: template.quality ?? tonicChord.quality,
       bass: template.bass,
       color: CHORD_COLORS[chords.length % CHORD_COLORS.length],
       confidence: 1,
@@ -752,8 +755,7 @@ export default function App() {
     commitAnnotations,
     grid,
     gridDivision,
-    keyMode,
-    keyRoot,
+    keyForTime,
     selectOnly,
     tracks,
   ])
@@ -1155,12 +1157,13 @@ export default function App() {
       selectChordsInRange(range)
       return
     }
+    const tonicChord = tonicChordForKey(keyForTime(start))
     const chord: ChordAnnotation = {
       id: `chord-${crypto.randomUUID()}`,
       start,
       duration: end - start,
-      root: keyRoot,
-      quality: keyMode === 'minor' ? 'min' : 'maj',
+      root: tonicChord.root,
+      quality: tonicChord.quality,
       color: CHORD_COLORS[chords.length % CHORD_COLORS.length],
       confidence: 1,
       trackId: activeTrackId,

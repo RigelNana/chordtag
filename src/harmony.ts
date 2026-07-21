@@ -71,10 +71,10 @@ export function analyzeHarmonyContext(
     : undefined
   const classification = diatonic
     ? '调内音阶和弦'
-    : borrowedFrom.length
-      ? '平行调式借用'
-      : secondaryTarget
-        ? '副属 / 临时主音化'
+    : secondaryTarget
+      ? '副属 / 临时主音化'
+      : borrowedFrom.length
+        ? '平行调式借用'
         : '半音和声或转调连接'
 
   return {

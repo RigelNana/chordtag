@@ -335,6 +335,7 @@ function ChordInspector({
   const [family, setFamily] = useState<'all' | ChordFamily>('all')
   const notes = chord ? chordNotes(chord) : []
   const voicing = chord ? annotationVoicing(chord) : []
+  const customBass = chord?.bass
   const inversionOptions = chord
     ? [
       { value: chord.root, label: `原位 · ${chord.root}` },
@@ -344,8 +345,8 @@ function ChordInspector({
           value: Note.pitchClass(note),
           label: `第 ${index + 1} 转位 · ${chord.root}/${Note.pitchClass(note)}`,
         })),
-      ...(chord.bass && !notes.some((note) => Note.chroma(note) === Note.chroma(chord.bass))
-        ? [{ value: chord.bass, label: `自定义低音 · ${chord.root}/${chord.bass}` }]
+      ...(customBass && !notes.some((note) => Note.chroma(note) === Note.chroma(customBass))
+        ? [{ value: customBass, label: `自定义低音 · ${chord.root}/${customBass}` }]
         : []),
     ]
     : []

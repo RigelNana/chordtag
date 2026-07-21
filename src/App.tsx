@@ -643,6 +643,7 @@ export default function App() {
   const [viewportWidth, setViewportWidth] = useState(900)
   const [currentTime, setCurrentTime] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
+  const [followPlayhead, setFollowPlayhead] = useState(true)
   const [volume, setVolume] = useState(0.82)
   const [playbackRate, setPlaybackRate] = useState(1)
   const [gridDivision, setGridDivision] = useState<GridDivision>(2)
@@ -918,7 +919,13 @@ export default function App() {
     }
     const parsed = parseChordSymbol(symbol)
     const voicing = pianoNotes.length
-      ? [...pianoNotes]
+      ? pianoNotes.map((note) => {
+        const spelled = parsed.details.notes.find((chordNote) =>
+          Note.chroma(chordNote) === Note.chroma(note),
+        )
+        if (!spelled) throw new Error(`${note} is not part of the selected chord candidate ${symbol}`)
+        return `${spelled}${Note.octave(note)}`
+      })
       : pitchClassesToVoicing(parsed.details.notes)
     const patch: Partial<ChordAnnotation> = {
       root: parsed.root,
@@ -1023,6 +1030,18 @@ export default function App() {
     playbackAnchor.current = { startedAt: performance.now(), from: bounded }
   }, [analysis.duration])
 
+  const followPlaybackTime = useCallback((time: number) => {
+    if (!followPlayhead || !scrollerRef.current) return
+    const scroller = scrollerRef.current
+    const playheadPosition = time * zoomRef.current
+    const maximumScroll = Math.max(0, scroller.scrollWidth - scroller.clientWidth)
+    const target = Math.max(
+      0,
+      Math.min(maximumScroll, playheadPosition - scroller.clientWidth * 0.28),
+    )
+    if (Math.abs(scroller.scrollLeft - target) > 0.5) scroller.scrollLeft = target
+  }, [followPlayhead])
+
   const togglePlayback = useCallback(async () => {
     if (isPlaying) {
       audioRef.current?.pause()
@@ -1034,6 +1053,7 @@ export default function App() {
     setRangePlayback(false)
     const start = currentTime >= analysis.duration - 0.02 ? 0 : currentTime
     seek(start)
+    followPlaybackTime(start)
     playbackAnchor.current = { startedAt: performance.now(), from: start }
     setIsChordPlayback(true)
     await playChordTimeline(
@@ -1058,6 +1078,7 @@ export default function App() {
     playbackRate,
     seek,
     tracks,
+    followPlaybackTime,
   ])
 
   const playSelectedRange = useCallback(async () => {
@@ -1065,6 +1086,7 @@ export default function App() {
     audioRef.current?.pause()
     stopChordPlayback()
     seek(timeSelection.start)
+    followPlaybackTime(timeSelection.start)
     playbackAnchor.current = { startedAt: performance.now(), from: timeSelection.start }
     setIsChordPlayback(true)
     await playChordTimeline(
@@ -1081,7 +1103,7 @@ export default function App() {
     }
     setRangePlayback(true)
     setIsPlaying(true)
-  }, [analysis.url, chords, midiVolume, playbackRate, seek, timeSelection, tracks])
+  }, [analysis.url, chords, followPlaybackTime, midiVolume, playbackRate, seek, timeSelection, tracks])
 
   useEffect(() => {
     if (!isPlaying) return
@@ -1109,6 +1131,7 @@ export default function App() {
           }
           playbackAnchor.current = { startedAt: performance.now(), from: start }
           setCurrentTime(start)
+          followPlaybackTime(start)
           frame = requestAnimationFrame(tick)
           return
         }
@@ -1127,6 +1150,7 @@ export default function App() {
         return
       }
       setCurrentTime(next)
+      followPlaybackTime(next)
       frame = requestAnimationFrame(tick)
     }
     frame = requestAnimationFrame(tick)
@@ -1135,6 +1159,7 @@ export default function App() {
     analysis.duration,
     analysis.url,
     chords,
+    followPlaybackTime,
     isPlaying,
     loopSelection,
     midiVolume,
@@ -2180,6 +2205,13 @@ export default function App() {
               )}
             </div>
             <div className="transport-right">
+              <button
+                className={`follow-playhead-button ${followPlayhead ? 'active' : ''}`}
+                onClick={() => setFollowPlayhead((value) => !value)}
+                title="播放时自动跟随播放头"
+              >
+                <Focus size={13} />跟随
+              </button>
               <button className="rate-button" onClick={() => setPlaybackRate((rate) => rate === 1 ? 0.75 : rate === 0.75 ? 1.25 : 1)}>
                 {playbackRate}×
               </button>

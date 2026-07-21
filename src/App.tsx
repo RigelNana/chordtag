@@ -713,6 +713,17 @@ export default function App() {
     void playChordTimeline(chords, tracks, currentTime, () => setIsChordPlayback(false))
   }
 
+  const playSingleChordTrack = (track: ChordTrack) => {
+    stopChordPlayback()
+    setIsChordPlayback(true)
+    void playChordTimeline(
+      chords,
+      [{ ...track, muted: false, solo: false }],
+      currentTime,
+      () => setIsChordPlayback(false),
+    )
+  }
+
   const undo = useCallback(() => {
     const previous = history.past.at(-1)
     if (!previous) return
@@ -1522,6 +1533,17 @@ export default function App() {
                     M
                   </button>
                   <button
+                    aria-label={`播放 ${track.name}`}
+                    className="track-play"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      playSingleChordTrack(track)
+                    }}
+                    type="button"
+                  >
+                    <Play size={10} fill="currentColor" />
+                  </button>
+                  <button
                     aria-label="在播放头处添加和弦"
                     onClick={(event) => {
                       event.stopPropagation()
@@ -1674,6 +1696,7 @@ export default function App() {
                       <strong>{track.name}</strong>
                       <button className={track.muted ? 'active' : ''} onClick={(event) => { event.stopPropagation(); updateTrack(track.id, { muted: !track.muted }) }}>M</button>
                       <button className={track.solo ? 'active solo' : ''} onClick={(event) => { event.stopPropagation(); updateTrack(track.id, { solo: !track.solo }) }}>S</button>
+                      <button aria-label={`播放 ${track.name}`} onClick={(event) => { event.stopPropagation(); playSingleChordTrack(track) }}><Play size={10} fill="currentColor" /></button>
                       <Volume2 size={13} />
                       <input aria-label={`${track.name} 音量`} max="1" min="0" step="0.01" type="range" value={track.volume} onChange={(event) => updateTrack(track.id, { volume: Number(event.target.value) })} />
                     </div>

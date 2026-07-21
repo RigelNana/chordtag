@@ -966,7 +966,7 @@ input[type="range"] {
   top: 0;
   left: 0;
   display: flex;
-  width: 184px;
+  width: 218px;
   height: 30px;
   align-items: center;
   gap: 5px;
@@ -1025,6 +1025,11 @@ input[type="range"] {
 .lane-title > .track-toggle.active {
   color: #fff;
   background: #a13c48;
+}
+
+.lane-title > .track-play {
+  color: #5b468c;
+  background: #eee5ff;
 }
 
 .lane-title > button:hover {
@@ -2148,9 +2153,9 @@ input[type="range"] {
 
 .track-mixer-strip {
   display: grid;
-  min-width: 205px;
+  min-width: 236px;
   height: 34px;
-  grid-template-columns: 8px minmax(62px, 1fr) 24px 24px 14px 56px;
+  grid-template-columns: 8px minmax(62px, 1fr) 24px 24px 24px 14px 56px;
   align-items: center;
   gap: 4px;
   padding: 0 7px;

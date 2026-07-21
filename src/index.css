@@ -361,6 +361,98 @@ select:focus-visible {
   font-size: 11px;
 }
 
+.key-map-wrapper {
+  position: relative;
+}
+
+.key-control .mode-select .m3-select-trigger {
+  min-width: 74px;
+}
+
+.key-add-button,
+.key-map-button {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  color: #6750a4;
+  background: #eee5ff;
+  cursor: pointer;
+}
+
+.key-map-button {
+  margin-left: -3px;
+  color: #6d6571;
+  background: transparent;
+}
+
+.key-map-popover {
+  position: absolute;
+  z-index: 90;
+  top: 43px;
+  right: 0;
+  width: 340px;
+  padding: 14px;
+  border: 1px solid #ded6e2;
+  border-radius: 17px;
+  background: #fffbff;
+  box-shadow: 0 18px 48px rgba(45, 33, 57, 0.18);
+}
+
+.key-marker-list {
+  display: flex;
+  max-height: 220px;
+  flex-direction: column;
+  gap: 5px;
+  margin: 13px 0;
+  overflow-y: auto;
+}
+
+.key-marker-list button {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  border: 1px solid #e2dbe5;
+  border-radius: 10px;
+  color: #716975;
+  background: #fff;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.key-marker-list button.active {
+  border-color: #8e75c5;
+  color: #554077;
+  background: #f0e8ff;
+}
+
+.key-marker-list strong {
+  font-size: 9px;
+}
+
+.key-popover-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+}
+
+.delete-key-marker {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 10px;
+  color: #9a3543;
+  background: #ffe9ec;
+  font-size: 8px;
+  cursor: pointer;
+}
+
 .m3-select {
   position: relative;
   min-width: 0;
@@ -828,6 +920,26 @@ input[type="range"] {
 .first-beat-anchor:active {
   background: #4f378b;
   cursor: grabbing;
+}
+
+.key-change-marker {
+  position: absolute;
+  z-index: 15;
+  top: 2px;
+  max-width: 105px;
+  height: 15px;
+  padding: 0 5px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 5px;
+  color: #5d478c;
+  background: #eee5ff;
+  font-size: 7px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transform: translateX(14px);
 }
 
 .bar-number {
@@ -2676,6 +2788,119 @@ input[type="range"] {
   font-size: 17px;
 }
 
+.harmony-assistant-card {
+  margin: 0 0 13px;
+  padding: 12px;
+  border: 1px solid #dcd2eb;
+  border-radius: 15px;
+  background: linear-gradient(150deg, #fbf8ff, #f5f0fb);
+}
+
+.assistant-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.assistant-heading > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.assistant-heading strong {
+  color: #504064;
+  font-size: 10px;
+}
+
+.context-status {
+  padding: 4px 6px;
+  border-radius: 7px;
+  font-size: 7px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.context-status.diatonic {
+  color: #39725e;
+  background: #e1f3ea;
+}
+
+.context-status.chromatic {
+  color: #8b5a26;
+  background: #fff0d8;
+}
+
+.context-facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  margin-top: 10px;
+}
+
+.context-facts > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.context-facts > div.wide {
+  grid-column: 1 / -1;
+}
+
+.context-facts span {
+  color: #8b818f;
+  font-size: 7px;
+}
+
+.context-facts strong {
+  overflow: hidden;
+  color: #554c5a;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dual-key-analysis {
+  display: grid;
+  gap: 3px;
+  margin-top: 8px;
+  padding: 8px;
+  border-left: 3px solid #8b72c5;
+  border-radius: 8px;
+  background: #eee7f8;
+}
+
+.dual-key-analysis.pivot {
+  border-left-color: #3f8b70;
+  background: #e4f3ed;
+}
+
+.dual-key-analysis span {
+  color: #766a7e;
+  font-size: 7px;
+  font-weight: 700;
+}
+
+.dual-key-analysis strong {
+  color: #514757;
+  font-size: 8px;
+}
+
+.voice-leading-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 8px;
+  color: #756c7a;
+  font-size: 7px;
+}
+
 .search-field {
   display: flex;
   height: 39px;
@@ -3274,6 +3499,14 @@ input[type="range"] {
   .tempo-popover {
     position: fixed;
     top: 76px;
+    right: 10px;
+    left: 10px;
+    width: auto;
+  }
+
+  .key-map-popover {
+    position: fixed;
+    top: 70px;
     right: 10px;
     left: 10px;
     width: auto;

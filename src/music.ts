@@ -1,10 +1,11 @@
-import { Chord, ChordType, Note, Progression } from '@tonaljs/tonal'
+import { Chord, ChordType, Note, Scale } from '@tonaljs/tonal'
 import type {
   BeatMarker,
   ChordAnnotation,
   ChordColor,
   ChordQuality,
   GridDivision,
+  KeyMode,
   TempoMarker,
 } from './types'
 
@@ -107,34 +108,40 @@ export function chordNotes(chord: Pick<ChordAnnotation, 'root' | 'quality'>) {
 
 export function romanNumeral(
   keyRoot: string,
-  mode: 'major' | 'minor',
+  mode: KeyMode,
   chord: Pick<ChordAnnotation, 'root' | 'quality'>,
 ) {
-  try {
-    const raw = Progression.toRomanNumerals(keyRoot, [tonalChordName(chord)])[0] ?? ''
-    const degree = raw.match(/^([b#]*)([IViv]+)/)
-    if (!degree) return raw || '—'
-    const chordData = Chord.get(tonalChordName(chord))
-    const minorDegree = chordData.quality === 'Minor' || chordData.quality === 'Diminished'
-    const accidental = degree[1]
-    const numeral = minorDegree ? degree[2].toLowerCase() : degree[2].toUpperCase()
-    const rawSuffix = qualityDisplay(chord.quality)
-    const suffix = minorDegree ? rawSuffix.replace(/^m(?:in)?/, '') : rawSuffix
-    return `${accidental.replace('b', '♭')}${numeral}${suffix}`
-  } catch {
-    const keyChroma = Note.chroma(keyRoot)
-    const chordChroma = Note.chroma(chord.root)
-    if (keyChroma === undefined || chordChroma === undefined) return '—'
-    const degree = (chordChroma - keyChroma + 12) % 12
-    const map = mode === 'major'
-      ? ['I', '♭II', 'ii', '♭III', 'iii', 'IV', '♭V', 'V', '♭VI', 'vi', '♭VII', 'vii°']
-      : ['i', '♭II', 'ii°', 'III', '♭IV', 'iv', '♭V', 'V', 'VI', '♭VII', 'vii°', 'VII']
-    return map[degree]
-  }
+  const scale = Scale.get(`${keyRoot} ${mode}`).notes
+  const root = Note.get(chord.root)
+  if (!scale.length || root.chroma === undefined) return '—'
+
+  const degreeIndex = scale.findIndex((note) => Note.get(note).letter === root.letter)
+  if (degreeIndex < 0) return '—'
+  const degreeChroma = Note.chroma(scale[degreeIndex]) ?? 0
+  const alteration = ((root.chroma - degreeChroma + 18) % 12) - 6
+  const accidental = alteration > 0
+    ? '♯'.repeat(alteration)
+    : '♭'.repeat(Math.abs(alteration))
+  const chordData = Chord.get(tonalChordName(chord))
+  const lowercase = chordData.quality === 'Minor' || chordData.quality === 'Diminished'
+  const roman = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'][degreeIndex]
+  const numeral = lowercase ? roman.toLowerCase() : roman
+  const rawSuffix = qualityDisplay(chord.quality)
+  const suffix = lowercase ? rawSuffix.replace(/^m(?:in)?/, '') : rawSuffix
+  return `${accidental}${numeral}${suffix.replace(/^dim/, '°').replace(/^7♭5$/, 'ø7')}`
 }
 
 export function barDuration(marker: TempoMarker) {
   return marker.numerator * (60 / marker.bpm) * (4 / marker.denominator)
+}
+
+export function timeAtBar(bar: number, markers: TempoMarker[]) {
+  const marker = [...markers]
+    .sort((a, b) => a.startBar - b.startBar)
+    .reverse()
+    .find((item) => item.startBar <= bar)
+  if (!marker) return 0
+  return marker.startTime + (bar - marker.startBar) * barDuration(marker)
 }
 
 export function normalizeTempoMarkers(markers: TempoMarker[], firstBeatOffset: number) {

@@ -42,14 +42,51 @@
     "musicalContext": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["tonic", "mode"],
+      "required": ["tonic", "mode", "keyMap"],
       "properties": {
         "tonic": {
           "type": "string",
           "pattern": "^[A-G](?:#|b)?$"
         },
         "mode": {
-          "enum": ["major", "minor"]
+          "enum": [
+            "major",
+            "minor",
+            "dorian",
+            "phrygian",
+            "lydian",
+            "mixolydian",
+            "locrian",
+            "harmonic minor",
+            "melodic minor"
+          ]
+        },
+        "keyMap": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["startBar", "startTime", "tonic", "mode"],
+            "properties": {
+              "startBar": { "type": "integer", "minimum": 1 },
+              "startTime": { "type": "number", "minimum": 0 },
+              "tonic": { "type": "string", "pattern": "^[A-G](?:#|b)?$" },
+              "mode": {
+                "enum": [
+                  "major",
+                  "minor",
+                  "dorian",
+                  "phrygian",
+                  "lydian",
+                  "mixolydian",
+                  "locrian",
+                  "harmonic minor",
+                  "melodic minor"
+                ]
+              }
+            }
+          }
         }
       }
     },
@@ -137,7 +174,62 @@
             "type": "array",
             "items": { "type": "string", "pattern": "^[A-G](?:#|b)?-?\\d+$" }
           },
-          "velocity": { "type": "number", "minimum": 0, "maximum": 1 }
+          "velocity": { "type": "number", "minimum": 0, "maximum": 1 },
+          "keyContext": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["tonic", "mode", "startBar"],
+            "properties": {
+              "tonic": { "type": "string", "pattern": "^[A-G](?:#|b)?$" },
+              "mode": {
+                "enum": [
+                  "major",
+                  "minor",
+                  "dorian",
+                  "phrygian",
+                  "lydian",
+                  "mixolydian",
+                  "locrian",
+                  "harmonic minor",
+                  "melodic minor"
+                ]
+              },
+              "startBar": { "type": "integer", "minimum": 1 }
+            }
+          },
+          "harmonicAnalysis": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "classification",
+              "diatonic",
+              "chordToneCoverage",
+              "borrowedFrom",
+              "secondaryTarget"
+            ],
+            "properties": {
+              "classification": { "type": "string" },
+              "diatonic": { "type": "boolean" },
+              "chordToneCoverage": { "type": "number", "minimum": 0, "maximum": 1 },
+              "borrowedFrom": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "major",
+                    "minor",
+                    "dorian",
+                    "phrygian",
+                    "lydian",
+                    "mixolydian",
+                    "locrian",
+                    "harmonic minor",
+                    "melodic minor"
+                  ]
+                }
+              },
+              "secondaryTarget": { "type": ["string", "null"] }
+            }
+          }
         }
       }
     }

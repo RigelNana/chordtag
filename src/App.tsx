@@ -65,6 +65,7 @@ import {
   qualityDisplay,
   romanNumeral,
   snapTime,
+  timeAtBar,
 } from './music'
 import type {
   AudioAnalysis,
@@ -72,9 +73,20 @@ import type {
   ChordTrack,
   EditorTool,
   GridDivision,
+  KeyMarker,
+  KeyMode,
   TempoMarker,
   WaveformMode,
 } from './types'
+import {
+  KEY_MODE_OPTIONS,
+  analyzeAcrossKeys,
+  analyzeHarmonyContext,
+  analyzeVoiceLeading,
+  tonicChordForKey,
+  type HarmonyContext,
+  type VoiceLeadingResult,
+} from './harmony'
 import { ChordFinder } from './ChordFinder'
 import { PianoKeyboard } from './PianoKeyboard'
 import { WaveformCanvas } from './WaveformCanvas'
@@ -136,13 +148,24 @@ function removeChordOverlaps(items: ChordAnnotation[]) {
 
 interface ChordInspectorProps {
   chord?: ChordAnnotation
+  harmonyContext?: {
+    current: HarmonyContext
+    currentLabel: string
+    alternate?: HarmonyContext
+    alternateLabel?: string
+    pivot?: boolean
+  }
   keyRoot: string
-  keyMode: 'major' | 'minor'
+  keyMode: KeyMode
   onAudition: (chord: ChordAnnotation) => void
   onClose: () => void
   onDelete: () => void
   onUpdate: (patch: Partial<ChordAnnotation>) => void
   tracks: ChordTrack[]
+  voiceLeading?: {
+    previous?: VoiceLeadingResult
+    next?: VoiceLeadingResult
+  }
 }
 
 interface SelectOption {
@@ -225,6 +248,7 @@ function MaterialSelect({
 
 function ChordInspector({
   chord,
+  harmonyContext,
   keyRoot,
   keyMode,
   onAudition,
@@ -232,6 +256,7 @@ function ChordInspector({
   onDelete,
   onUpdate,
   tracks,
+  voiceLeading,
 }: ChordInspectorProps) {
   const [query, setQuery] = useState('')
   const [family, setFamily] = useState<'all' | ChordFamily>('all')
@@ -270,13 +295,45 @@ function ChordInspector({
           <div className="analysis-card">
             <div>
               <span>级数</span>
-              <strong>{numeral}</strong>
+              <strong>{harmonyContext?.current.roman ?? numeral}</strong>
             </div>
             <div>
               <span>构成音</span>
               <strong>{notes.join(' · ') || '—'}</strong>
             </div>
           </div>
+
+          {harmonyContext && (
+            <section className="harmony-assistant-card">
+              <div className="assistant-heading">
+                <div><span className="eyebrow">和声分析辅助</span><strong>{harmonyContext.currentLabel}</strong></div>
+                <span className={harmonyContext.current.diatonic ? 'context-status diatonic' : 'context-status chromatic'}>
+                  {harmonyContext.current.classification}
+                </span>
+              </div>
+              <div className="context-facts">
+                <div><span>调内覆盖</span><strong>{Math.round(harmonyContext.current.chordToneCoverage * 100)}%</strong></div>
+                <div><span>当前级数</span><strong>{harmonyContext.current.roman}</strong></div>
+                {harmonyContext.current.secondaryTarget && <div><span>临时主音化</span><strong>V/{harmonyContext.current.secondaryTarget}</strong></div>}
+                {harmonyContext.current.borrowedFrom.length > 0 && (
+                  <div className="wide"><span>可解释为平行调式借用</span><strong>{harmonyContext.current.borrowedFrom.map((mode) => KEY_MODE_OPTIONS.find((item) => item.value === mode)?.label).join(' · ')}</strong></div>
+                )}
+              </div>
+              {harmonyContext.alternate && (
+                <div className={`dual-key-analysis ${harmonyContext.pivot ? 'pivot' : ''}`}>
+                  <span>{harmonyContext.pivot ? '共同和弦 / 枢纽候选' : '转调边界双重解释'}</span>
+                  <strong>{harmonyContext.currentLabel}：{harmonyContext.current.roman}</strong>
+                  <strong>{harmonyContext.alternateLabel}：{harmonyContext.alternate.roman}</strong>
+                </div>
+              )}
+              {(voiceLeading?.previous || voiceLeading?.next) && (
+                <div className="voice-leading-row">
+                  {voiceLeading.previous && <span>前接：{voiceLeading.previous.totalSemitones} 半音 · 共同音 {voiceLeading.previous.commonTones.join('、') || '无'}</span>}
+                  {voiceLeading.next && <span>后接：{voiceLeading.next.totalSemitones} 半音 · 共同音 {voiceLeading.next.commonTones.join('、') || '无'}</span>}
+                </div>
+              )}
+            </section>
+          )}
 
           <label className="search-field">
             <Search size={16} />
@@ -481,9 +538,14 @@ export default function App() {
   const [gridDivision, setGridDivision] = useState<GridDivision>(2)
   const [firstBeatOffset, setFirstBeatOffset] = useState(FIRST_BEAT_OFFSET)
   const [tempoMarkers, setTempoMarkers] = useState<TempoMarker[]>(INITIAL_TEMPO)
-  const [keyRoot, setKeyRoot] = useState('C')
-  const [keyMode, setKeyMode] = useState<'major' | 'minor'>('major')
+  const [keyMarkers, setKeyMarkers] = useState<KeyMarker[]>(() => {
+    const saved = localStorage.getItem('chordtag-key-map')
+    if (!saved) return [{ id: 'key-1', startBar: 1, tonic: 'C', mode: 'major' }]
+    const parsed = JSON.parse(saved) as KeyMarker[]
+    return parsed.length ? parsed : [{ id: 'key-1', startBar: 1, tonic: 'C', mode: 'major' }]
+  })
   const [tempoOpen, setTempoOpen] = useState(false)
+  const [keyOpen, setKeyOpen] = useState(false)
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [importProgress, setImportProgress] = useState<number | null>(null)
   const [saveState, setSaveState] = useState<'saved' | 'saving'>('saved')
@@ -499,11 +561,84 @@ export default function App() {
     () => buildGrid(tempoMarkers, analysis.duration, gridDivision),
     [analysis.duration, gridDivision, tempoMarkers],
   )
+  const keyTimeline = useMemo(
+    () => [...keyMarkers]
+      .sort((a, b) => a.startBar - b.startBar)
+      .map((marker) => ({ ...marker, startTime: timeAtBar(marker.startBar, tempoMarkers) })),
+    [keyMarkers, tempoMarkers],
+  )
+  const activeKey = [...keyTimeline].reverse().find((marker) => marker.startTime <= currentTime)
+    ?? keyTimeline[0]
+  const keyRoot = activeKey.tonic
+  const keyMode = activeKey.mode
+  const keyForTime = useCallback((time: number) => (
+    [...keyTimeline].reverse().find((marker) => marker.startTime <= time) ?? keyTimeline[0]
+  ), [keyTimeline])
+  const setKeyRoot = (tonic: string) => {
+    setKeyMarkers((current) => current.map((marker) =>
+      marker.id === activeKey.id ? { ...marker, tonic } : marker,
+    ))
+  }
+  const setKeyMode = (mode: KeyMode) => {
+    setKeyMarkers((current) => current.map((marker) =>
+      marker.id === activeKey.id ? { ...marker, mode } : marker,
+    ))
+  }
   const pianoCandidates = useMemo(
     () => pianoNotes.length > 1 ? TonalChord.detect(pianoNotes).slice(0, 8) : [],
     [pianoNotes],
   )
   const selectedChord = chords.find((chord) => chord.id === selectedId)
+  const selectedHarmony = useMemo(() => {
+    if (!selectedChord) return undefined
+    const currentKey = keyForTime(selectedChord.start)
+    const current = analyzeHarmonyContext(selectedChord, currentKey)
+    const trackId = selectedChord.trackId ?? tracks[0]?.id
+    const ordered = chords
+      .filter((chord) => (chord.trackId ?? tracks[0]?.id) === trackId)
+      .sort((a, b) => a.start - b.start)
+    const chordIndex = ordered.findIndex((chord) => chord.id === selectedChord.id)
+    const previousChord = ordered[chordIndex - 1]
+    const nextChord = ordered[chordIndex + 1]
+    const boundaries = keyTimeline.slice(1).map((marker, index) => ({
+      marker,
+      previousKey: keyTimeline[index],
+    }))
+    const adjacentBoundaries = boundaries.filter(({ marker }) => {
+      const selectedEnd = selectedChord.start + selectedChord.duration
+      if (selectedChord.start < marker.startTime && selectedEnd > marker.startTime) return true
+      if (selectedEnd <= marker.startTime) return !nextChord || nextChord.start >= marker.startTime
+      return !previousChord || previousChord.start + previousChord.duration <= marker.startTime
+    })
+    const transition = adjacentBoundaries
+      .sort((a, b) => {
+        const center = selectedChord.start + selectedChord.duration / 2
+        return Math.abs(a.marker.startTime - center) - Math.abs(b.marker.startTime - center)
+      })[0]
+    const alternateKey = transition
+      ? selectedChord.start >= transition.marker.startTime
+        ? transition.previousKey
+        : transition.marker
+      : undefined
+    const crossKey = alternateKey
+      ? analyzeAcrossKeys(selectedChord, currentKey, alternateKey)
+      : undefined
+    const modeName = (mode: KeyMode) =>
+      KEY_MODE_OPTIONS.find((option) => option.value === mode)?.label ?? mode
+    return {
+      context: {
+        current,
+        currentLabel: `${currentKey.tonic} ${modeName(currentKey.mode)}`,
+        alternate: crossKey?.second,
+        alternateLabel: alternateKey ? `${alternateKey.tonic} ${modeName(alternateKey.mode)}` : undefined,
+        pivot: crossKey?.pivot,
+      },
+      voiceLeading: {
+        previous: previousChord ? analyzeVoiceLeading(previousChord, selectedChord) : undefined,
+        next: nextChord ? analyzeVoiceLeading(selectedChord, nextChord) : undefined,
+      },
+    }
+  }, [chords, keyForTime, keyTimeline, selectedChord, tracks])
   const activeTempo = [...tempoMarkers].reverse().find((marker) => marker.startTime <= currentTime)
     ?? tempoMarkers[0]
   const visibleStart = scrollLeft / pixelsPerSecond
@@ -557,6 +692,8 @@ export default function App() {
 
   const addChordAt = useCallback((time: number, template: Partial<ChordAnnotation> = {}) => {
     const targetTrackId = template.trackId ?? activeTrackId
+    const insertionKey = keyForTime(time)
+    const tonicChord = tonicChordForKey(insertionKey)
     const marker = [...grid].reverse().find((item) => item.time <= time) ?? grid[0]
     const beatSeconds = marker ? (60 / marker.bpm) * (4 / Number(marker.meter.split('/')[1])) : 0.5
     const meterBeats = marker ? Number(marker.meter.split('/')[0]) : 4
@@ -594,8 +731,8 @@ export default function App() {
       id: `chord-${crypto.randomUUID()}`,
       start,
       duration,
-      root: template.root ?? keyRoot,
-      quality: template.quality ?? (keyMode === 'minor' ? 'min' : 'maj'),
+      root: template.root ?? tonicChord.root,
+      quality: template.quality ?? tonicChord.quality,
       bass: template.bass,
       color: CHORD_COLORS[chords.length % CHORD_COLORS.length],
       confidence: 1,
@@ -618,8 +755,7 @@ export default function App() {
     commitAnnotations,
     grid,
     gridDivision,
-    keyMode,
-    keyRoot,
+    keyForTime,
     selectOnly,
     tracks,
   ])
@@ -864,6 +1000,10 @@ export default function App() {
     localStorage.setItem('chordtag-tracks', JSON.stringify(tracks))
   }, [tracks])
 
+  useEffect(() => {
+    localStorage.setItem('chordtag-key-map', JSON.stringify(keyMarkers))
+  }, [keyMarkers])
+
   useEffect(() => () => stopChordPlayback(), [])
 
   useEffect(() => {
@@ -1017,12 +1157,13 @@ export default function App() {
       selectChordsInRange(range)
       return
     }
+    const tonicChord = tonicChordForKey(keyForTime(start))
     const chord: ChordAnnotation = {
       id: `chord-${crypto.randomUUID()}`,
       start,
       duration: end - start,
-      root: keyRoot,
-      quality: keyMode === 'minor' ? 'min' : 'maj',
+      root: tonicChord.root,
+      quality: tonicChord.quality,
       color: CHORD_COLORS[chords.length % CHORD_COLORS.length],
       confidence: 1,
       trackId: activeTrackId,
@@ -1184,6 +1325,26 @@ export default function App() {
     setTempoMarkers(normalizeTempoMarkers(next, firstBeatOffset))
   }
 
+  const addKeyMarker = () => {
+    const bar = [...grid].reverse().find((marker) => marker.isBar && marker.time <= currentTime)?.bar ?? 1
+    if (keyMarkers.some((marker) => marker.startBar === bar)) {
+      setKeyOpen(true)
+      return
+    }
+    setKeyMarkers((current) => [...current, {
+      id: `key-${crypto.randomUUID()}`,
+      startBar: bar,
+      tonic: activeKey.tonic,
+      mode: activeKey.mode,
+    }].sort((a, b) => a.startBar - b.startBar))
+    setKeyOpen(true)
+  }
+
+  const removeActiveKeyMarker = () => {
+    if (activeKey.startBar === 1) return
+    setKeyMarkers((current) => current.filter((marker) => marker.id !== activeKey.id))
+  }
+
   const handleAudioImport = async (file?: File) => {
     if (!file) return
     setImportProgress(0)
@@ -1213,7 +1374,16 @@ export default function App() {
         duration: Number(analysis.duration.toFixed(6)),
         createdAt: new Date().toISOString(),
       },
-      musicalContext: { tonic: keyRoot, mode: keyMode },
+      musicalContext: {
+        tonic: keyTimeline[0].tonic,
+        mode: keyTimeline[0].mode,
+        keyMap: keyTimeline.map((marker) => ({
+          startBar: marker.startBar,
+          startTime: Number(marker.startTime.toFixed(6)),
+          tonic: marker.tonic,
+          mode: marker.mode,
+        })),
+      },
       tracks: tracks.map((track) => ({
         id: track.id,
         name: track.name,
@@ -1231,20 +1401,36 @@ export default function App() {
           denominator: marker.denominator,
         })),
       },
-      annotations: chords.map((chord) => ({
-        id: chord.id,
-        start: Number(chord.start.toFixed(6)),
-        end: Number((chord.start + chord.duration).toFixed(6)),
-        symbol: chordName(chord),
-        root: chord.root,
-        quality: chord.quality,
-        bass: chord.bass ?? null,
-        romanNumeral: romanNumeral(keyRoot, keyMode, chord),
-        confidence: chord.confidence ?? 1,
-        trackId: chord.trackId ?? tracks[0]?.id,
-        voicing: chord.voicing ?? annotationVoicing(chord),
-        velocity: chord.velocity ?? 0.72,
-      })),
+      annotations: chords.map((chord) => {
+        const chordKey = keyForTime(chord.start)
+        const harmonic = analyzeHarmonyContext(chord, chordKey)
+        return {
+          id: chord.id,
+          start: Number(chord.start.toFixed(6)),
+          end: Number((chord.start + chord.duration).toFixed(6)),
+          symbol: chordName(chord),
+          root: chord.root,
+          quality: chord.quality,
+          bass: chord.bass ?? null,
+          romanNumeral: harmonic.roman,
+          confidence: chord.confidence ?? 1,
+          trackId: chord.trackId ?? tracks[0]?.id,
+          voicing: chord.voicing ?? annotationVoicing(chord),
+          velocity: chord.velocity ?? 0.72,
+          keyContext: {
+            tonic: chordKey.tonic,
+            mode: chordKey.mode,
+            startBar: chordKey.startBar,
+          },
+          harmonicAnalysis: {
+            classification: harmonic.classification,
+            diatonic: harmonic.diatonic,
+            chordToneCoverage: harmonic.chordToneCoverage,
+            borrowedFrom: harmonic.borrowedFrom,
+            secondaryTarget: harmonic.secondaryTarget ?? null,
+          },
+        }
+      }),
     }
     const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }))
     const anchor = document.createElement('a')
@@ -1318,22 +1504,55 @@ export default function App() {
           </div>
 
           <div className="context-controls">
-            <div className="key-control">
-              <span>调性</span>
-              <MaterialSelect
-                ariaLabel="调性根音"
-                className="compact"
-                onChange={setKeyRoot}
-                options={ROOTS.map((root) => ({ value: root, label: root }))}
-                value={keyRoot}
-              />
-              <MaterialSelect
-                ariaLabel="调式"
-                className="compact"
-                onChange={(value) => setKeyMode(value as 'major' | 'minor')}
-                options={[{ value: 'major', label: '大调' }, { value: 'minor', label: '小调' }]}
-                value={keyMode}
-              />
+            <div className="key-map-wrapper">
+              <div className="key-control">
+                <span>第 {activeKey.startBar} 小节起</span>
+                <MaterialSelect
+                  ariaLabel="调性根音"
+                  className="compact"
+                  onChange={setKeyRoot}
+                  options={ROOTS.map((root) => ({ value: root, label: root }))}
+                  value={keyRoot}
+                />
+                <MaterialSelect
+                  ariaLabel="调式"
+                  className="compact mode-select"
+                  onChange={(value) => setKeyMode(value as KeyMode)}
+                  options={KEY_MODE_OPTIONS}
+                  value={keyMode}
+                />
+                <button aria-label="在当前小节添加调性变化" className="key-add-button" onClick={addKeyMarker}><Plus size={14} /></button>
+                <button aria-label="查看调性图" className="key-map-button" onClick={() => setKeyOpen((open) => !open)}><ChevronDown size={14} /></button>
+              </div>
+              <AnimatePresence>
+                {keyOpen && (
+                  <motion.div animate={{ opacity: 1, y: 0 }} className="key-map-popover" exit={{ opacity: 0, y: -5 }} initial={{ opacity: 0, y: -5 }}>
+                    <div className="popover-heading">
+                      <div><span className="eyebrow">调性 / 调式图</span><strong>按小节生效</strong></div>
+                      <button className="icon-button" onClick={() => setKeyOpen(false)}><X size={16} /></button>
+                    </div>
+                    <div className="key-marker-list">
+                      {keyTimeline.map((marker) => (
+                        <button
+                          className={marker.id === activeKey.id ? 'active' : ''}
+                          key={marker.id}
+                          onClick={() => {
+                            seek(marker.startTime)
+                            setKeyOpen(false)
+                          }}
+                        >
+                          <span>第 {marker.startBar} 小节</span>
+                          <strong>{marker.tonic} {KEY_MODE_OPTIONS.find((mode) => mode.value === marker.mode)?.label}</strong>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="key-popover-actions">
+                      <button className="outlined-wide" onClick={addKeyMarker}><Plus size={14} />当前小节添加变化</button>
+                      {activeKey.startBar > 1 && <button className="delete-key-marker" onClick={removeActiveKeyMarker}><Trash2 size={14} />删除当前调性点</button>}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
             <button className="keyboard-hint"><Keyboard size={16} /><span>快捷键</span><kbd>?</kbd></button>
           </div>
@@ -1461,6 +1680,17 @@ export default function App() {
                   <span />
                   首拍
                 </button>
+                {keyTimeline.map((marker) => (
+                  <button
+                    className="key-change-marker"
+                    key={marker.id}
+                    onClick={() => seek(marker.startTime)}
+                    style={{ left: marker.startTime * pixelsPerSecond }}
+                    title={`${marker.tonic} ${KEY_MODE_OPTIONS.find((mode) => mode.value === marker.mode)?.label}`}
+                  >
+                    {marker.tonic} · {KEY_MODE_OPTIONS.find((mode) => mode.value === marker.mode)?.label}
+                  </button>
+                ))}
                 {visibleGrid.filter((marker) => marker.isBar).map((marker) => (
                   <span
                     className="bar-number"
@@ -1556,7 +1786,8 @@ export default function App() {
                   </button>
                 </div>
                 {trackChords.map((chord) => {
-                  const numeral = romanNumeral(keyRoot, keyMode, chord)
+                  const chordKey = keyForTime(chord.start)
+                  const numeral = romanNumeral(chordKey.tonic, chordKey.mode, chord)
                   return (
                     <motion.div
                       animate={{ opacity: 1, scale: 1 }}
@@ -1801,10 +2032,10 @@ export default function App() {
                 </div>
                 <div className="settings-grid">
                   <article className="feature-card setting-card">
-                    <div><strong>默认调性</strong><span>用于罗马数字与新增和弦</span></div>
+                    <div><strong>当前调性段</strong><span>用于所在小节的级数与新增和弦</span></div>
                     <div className="setting-row">
                       <MaterialSelect ariaLabel="设置根音" onChange={setKeyRoot} options={ROOTS.map((root) => ({ value: root, label: root }))} value={keyRoot} />
-                      <MaterialSelect ariaLabel="设置调式" onChange={(value) => setKeyMode(value as 'major' | 'minor')} options={[{ value: 'major', label: '大调' }, { value: 'minor', label: '小调' }]} value={keyMode} />
+                      <MaterialSelect ariaLabel="设置调式" onChange={(value) => setKeyMode(value as KeyMode)} options={KEY_MODE_OPTIONS} value={keyMode} />
                     </div>
                   </article>
                   <article className="feature-card setting-card">
@@ -1828,7 +2059,7 @@ export default function App() {
 
       <aside className="inspector-panel">
         {activePage === 'chords' && hasAudio ? (
-          <ChordInspector chord={selectedChord} keyMode={keyMode} keyRoot={keyRoot} onAudition={auditionChord} onClose={() => setInspectorOpen(false)} onDelete={deleteSelected} onUpdate={updateSelected} tracks={tracks} />
+          <ChordInspector chord={selectedChord} harmonyContext={selectedHarmony?.context} keyMode={keyMode} keyRoot={keyRoot} onAudition={auditionChord} onClose={() => setInspectorOpen(false)} onDelete={deleteSelected} onUpdate={updateSelected} tracks={tracks} voiceLeading={selectedHarmony?.voiceLeading} />
         ) : (
           <div className="side-page-summary">
             <span className="eyebrow">项目概览</span>
@@ -1853,7 +2084,7 @@ export default function App() {
               transition={{ type: 'spring', damping: 28, stiffness: 320 }}
             >
               <div className="sheet-handle" />
-              <ChordInspector chord={selectedChord} keyMode={keyMode} keyRoot={keyRoot} onAudition={auditionChord} onClose={() => setInspectorOpen(false)} onDelete={deleteSelected} onUpdate={updateSelected} tracks={tracks} />
+              <ChordInspector chord={selectedChord} harmonyContext={selectedHarmony?.context} keyMode={keyMode} keyRoot={keyRoot} onAudition={auditionChord} onClose={() => setInspectorOpen(false)} onDelete={deleteSelected} onUpdate={updateSelected} tracks={tracks} voiceLeading={selectedHarmony?.voiceLeading} />
             </motion.aside>
           </>
         )}

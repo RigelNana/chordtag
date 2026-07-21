@@ -27,6 +27,24 @@ export interface ChordTrack {
   color: ChordColor
 }
 
+export type KeyMode =
+  | 'major'
+  | 'minor'
+  | 'dorian'
+  | 'phrygian'
+  | 'lydian'
+  | 'mixolydian'
+  | 'locrian'
+  | 'harmonic minor'
+  | 'melodic minor'
+
+export interface KeyMarker {
+  id: string
+  startBar: number
+  tonic: string
+  mode: KeyMode
+}
+
 export interface TempoMarker {
   id: string
   startTime: number

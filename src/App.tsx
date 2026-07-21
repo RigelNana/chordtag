@@ -16,6 +16,7 @@ import {
   MousePointer2,
   Music2,
   Pause,
+  Piano,
   Play,
   Plus,
   Redo2,
@@ -25,6 +26,7 @@ import {
   Settings2,
   SlidersHorizontal,
   Sparkles,
+  Square,
   Trash2,
   Undo2,
   Upload,
@@ -32,6 +34,7 @@ import {
   Waves,
   X,
 } from 'lucide-react'
+import { Chord as TonalChord, Note } from '@tonaljs/tonal'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   type CSSProperties,
@@ -58,6 +61,7 @@ import {
   chordNotes,
   formatTime,
   normalizeTempoMarkers,
+  parseChordSymbol,
   qualityDisplay,
   romanNumeral,
   snapTime,
@@ -65,12 +69,23 @@ import {
 import type {
   AudioAnalysis,
   ChordAnnotation,
+  ChordTrack,
   EditorTool,
   GridDivision,
   TempoMarker,
   WaveformMode,
 } from './types'
+import { ChordFinder } from './ChordFinder'
+import { PianoKeyboard } from './PianoKeyboard'
 import { WaveformCanvas } from './WaveformCanvas'
+import {
+  annotationVoicing,
+  pitchClassesToVoicing,
+  playChord,
+  playChordTimeline,
+  playNotes,
+  stopChordPlayback,
+} from './synth'
 
 const MIN_ZOOM = 52
 const MAX_ZOOM = 360
@@ -82,17 +97,21 @@ const EMPTY_ANALYSIS: AudioAnalysis = {
   name: '未导入音频',
 }
 const LEGACY_DEMO_CHORD_IDS = new Set(Array.from({ length: 11 }, (_, index) => `chord-${index + 1}`))
+const DEFAULT_TRACKS: ChordTrack[] = [
+  { id: 'track-1', name: '和弦轨 1', volume: 0.78, muted: false, solo: false, color: 'lavender' },
+]
 
 type HistoryState = {
   past: ChordAnnotation[][]
   future: ChordAnnotation[][]
 }
 
-type WorkspacePage = 'chords' | 'settings'
+type WorkspacePage = 'chords' | 'finder' | 'settings'
 
 interface MarqueeSelection {
   start: number
   current: number
+  trackId: string
 }
 
 interface TimeRange {
@@ -101,15 +120,17 @@ interface TimeRange {
 }
 
 function removeChordOverlaps(items: ChordAnnotation[]) {
-  let cursor = 0
+  const cursors = new Map<string, number>()
   return [...items]
     .sort((a, b) => a.start - b.start)
     .map((item) => {
+      const trackId = item.trackId ?? DEFAULT_TRACKS[0].id
+      const cursor = cursors.get(trackId) ?? 0
       const originalEnd = item.start + item.duration
       const start = Math.max(cursor, item.start)
       const duration = Math.max(0.08, originalEnd - start)
-      cursor = start + duration
-      return { ...item, start, duration }
+      cursors.set(trackId, start + duration)
+      return { ...item, start, duration, trackId }
     })
 }
 
@@ -117,9 +138,11 @@ interface ChordInspectorProps {
   chord?: ChordAnnotation
   keyRoot: string
   keyMode: 'major' | 'minor'
+  onAudition: (chord: ChordAnnotation) => void
   onClose: () => void
   onDelete: () => void
   onUpdate: (patch: Partial<ChordAnnotation>) => void
+  tracks: ChordTrack[]
 }
 
 interface SelectOption {
@@ -204,13 +227,16 @@ function ChordInspector({
   chord,
   keyRoot,
   keyMode,
+  onAudition,
   onClose,
   onDelete,
   onUpdate,
+  tracks,
 }: ChordInspectorProps) {
   const [query, setQuery] = useState('')
   const [family, setFamily] = useState<'all' | ChordFamily>('all')
   const notes = chord ? chordNotes(chord) : []
+  const voicing = chord ? annotationVoicing(chord) : []
   const numeral = chord ? romanNumeral(keyRoot, keyMode, chord) : '—'
   const filteredQualities = QUALITY_OPTIONS.filter((option) => {
     const matchesFamily = family === 'all' || option.family === family
@@ -227,9 +253,10 @@ function ChordInspector({
           <span className="eyebrow">和弦检查器</span>
           <h2>{chord ? chordName(chord) : '选择一个和弦'}</h2>
         </div>
-        <button className="icon-button mobile-only" aria-label="关闭检查器" onClick={onClose}>
-          <X size={19} />
-        </button>
+        <div className="inspector-header-actions">
+          {chord && <button className="audition-button" onClick={() => onAudition(chord)}><Play size={14} fill="currentColor" />试听</button>}
+          <button className="icon-button mobile-only" aria-label="关闭检查器" onClick={onClose}><X size={19} /></button>
+        </div>
       </div>
 
       {!chord ? (
@@ -333,6 +360,30 @@ function ChordInspector({
             </label>
           </section>
 
+          <section className="inspector-section midi-editor-section">
+            <div className="section-label"><span>MIDI 与片段</span><small>{voicing.length} 个声部</small></div>
+            <label>
+              <span>所属轨道</span>
+              <MaterialSelect
+                ariaLabel="所属和弦轨"
+                onChange={(value) => onUpdate({ trackId: value })}
+                options={tracks.map((track) => ({ value: track.id, label: track.name }))}
+                value={chord.trackId ?? tracks[0]?.id ?? ''}
+              />
+            </label>
+            <div className="timing-fields">
+              <label><span>开始 (s)</span><input min="0" step="0.001" type="number" value={Number(chord.start.toFixed(3))} onChange={(event) => onUpdate({ start: Number(event.target.value) })} /></label>
+              <label><span>时长 (s)</span><input min="0.08" step="0.001" type="number" value={Number(chord.duration.toFixed(3))} onChange={(event) => onUpdate({ duration: Number(event.target.value) })} /></label>
+            </div>
+            <label className="velocity-field">
+              <span>力度 <b>{Math.round((chord.velocity ?? 0.72) * 127)}</b></span>
+              <input max="1" min="0.1" step="0.01" type="range" value={chord.velocity ?? 0.72} onChange={(event) => onUpdate({ velocity: Number(event.target.value) })} />
+            </label>
+            <div className="voicing-preview">
+              {voicing.map((note) => <span key={note}>{note}</span>)}
+            </div>
+          </section>
+
           <section className="inspector-section">
             <div className="section-label"><span>片段颜色</span></div>
             <div className="color-picker">
@@ -385,6 +436,21 @@ export default function App() {
   const [analysis, setAnalysis] = useState<AudioAnalysis>(EMPTY_ANALYSIS)
   const [hasAudio, setHasAudio] = useState(false)
   const [waveformMode, setWaveformMode] = useState<WaveformMode>('waveform')
+  const [tracks, setTracks] = useState<ChordTrack[]>(() => {
+    const saved = localStorage.getItem('chordtag-tracks')
+    if (!saved) return DEFAULT_TRACKS
+    try {
+      const parsed = JSON.parse(saved) as ChordTrack[]
+      return parsed.length ? parsed : DEFAULT_TRACKS
+    } catch {
+      return DEFAULT_TRACKS
+    }
+  })
+  const [activeTrackId, setActiveTrackId] = useState(tracks[0]?.id ?? 'track-1')
+  const [pianoNotes, setPianoNotes] = useState<string[]>([])
+  const [midiVolume, setMidiVolume] = useState(0.78)
+  const [isChordPlayback, setIsChordPlayback] = useState(false)
+  const [pianoExpanded, setPianoExpanded] = useState(true)
   const [chords, setChords] = useState<ChordAnnotation[]>(() => {
     const saved = localStorage.getItem('chordtag-annotations')
     if (!saved) return []
@@ -433,6 +499,10 @@ export default function App() {
     () => buildGrid(tempoMarkers, analysis.duration, gridDivision),
     [analysis.duration, gridDivision, tempoMarkers],
   )
+  const pianoCandidates = useMemo(
+    () => pianoNotes.length > 1 ? TonalChord.detect(pianoNotes).slice(0, 8) : [],
+    [pianoNotes],
+  )
   const selectedChord = chords.find((chord) => chord.id === selectedId)
   const activeTempo = [...tempoMarkers].reverse().find((marker) => marker.startTime <= currentTime)
     ?? tempoMarkers[0]
@@ -442,6 +512,7 @@ export default function App() {
     (marker) => marker.time >= visibleStart - 0.5 && marker.time <= visibleEnd + 0.5,
   )
   const timelineWidth = Math.max(viewportWidth, analysis.duration * pixelsPerSecond)
+  const timelineHeight = 40 + 190 + tracks.length * 96
 
   const commitAnnotations = useCallback((next: ChordAnnotation[]) => {
     setSaveState('saving')
@@ -484,13 +555,16 @@ export default function App() {
     }
   }, [chords, commitAnnotations, selectedId, selectedIds])
 
-  const addChordAt = useCallback((time: number) => {
+  const addChordAt = useCallback((time: number, template: Partial<ChordAnnotation> = {}) => {
+    const targetTrackId = template.trackId ?? activeTrackId
     const marker = [...grid].reverse().find((item) => item.time <= time) ?? grid[0]
     const beatSeconds = marker ? (60 / marker.bpm) * (4 / Number(marker.meter.split('/')[1])) : 0.5
     const meterBeats = marker ? Number(marker.meter.split('/')[0]) : 4
     const minimum = Math.max(0.08, beatSeconds / Math.max(1, gridDivision))
     let start = snapTime(time, grid, analysis.duration)
-    const sorted = [...chords].sort((a, b) => a.start - b.start)
+    const sorted = chords
+      .filter((item) => (item.trackId ?? tracks[0]?.id) === targetTrackId)
+      .sort((a, b) => a.start - b.start)
     const exact = sorted.find((item) => Math.abs(item.start - start) < 0.01)
     if (exact) {
       selectOnly(exact.id)
@@ -520,10 +594,14 @@ export default function App() {
       id: `chord-${crypto.randomUUID()}`,
       start,
       duration,
-      root: keyRoot,
-      quality: keyMode === 'minor' ? 'min' : 'maj',
+      root: template.root ?? keyRoot,
+      quality: template.quality ?? (keyMode === 'minor' ? 'min' : 'maj'),
+      bass: template.bass,
       color: CHORD_COLORS[chords.length % CHORD_COLORS.length],
       confidence: 1,
+      trackId: targetTrackId,
+      velocity: template.velocity ?? 0.72,
+      voicing: template.voicing,
     }
     const nextChords = containing
       ? chords.flatMap((item) => item.id === containing.id
@@ -533,7 +611,118 @@ export default function App() {
     commitAnnotations(nextChords.sort((a, b) => a.start - b.start))
     selectOnly(chord.id)
     setInspectorOpen(true)
-  }, [analysis.duration, chords, commitAnnotations, grid, gridDivision, keyMode, keyRoot, selectOnly])
+  }, [
+    activeTrackId,
+    analysis.duration,
+    chords,
+    commitAnnotations,
+    grid,
+    gridDivision,
+    keyMode,
+    keyRoot,
+    selectOnly,
+    tracks,
+  ])
+
+  const auditionChord = useCallback((chord: ChordAnnotation) => {
+    const track = tracks.find((item) => item.id === (chord.trackId ?? tracks[0]?.id))
+    void playChord(chord, track?.volume ?? midiVolume, `preview-${track?.id ?? 'main'}`)
+  }, [midiVolume, tracks])
+
+  const auditionSymbol = useCallback((symbol: string) => {
+    const details = TonalChord.get(symbol)
+    const notes = pitchClassesToVoicing(details.notes)
+    void playNotes(notes, 1.1, midiVolume)
+  }, [midiVolume])
+
+  const togglePianoNote = useCallback((note: string) => {
+    setPianoNotes((current) => current.includes(note)
+      ? current.filter((item) => item !== note)
+      : [...current, note].sort((a, b) => (Note.midi(a) ?? 0) - (Note.midi(b) ?? 0)))
+    void playNotes([note], 0.38, midiVolume, 'piano', 0.66)
+  }, [midiVolume])
+
+  const insertDetectedChord = useCallback((symbol: string, replaceSelected = false) => {
+    if (!hasAudio) {
+      fileInputRef.current?.click()
+      return
+    }
+    const parsed = parseChordSymbol(symbol)
+    const voicing = pianoNotes.length
+      ? [...pianoNotes]
+      : pitchClassesToVoicing(parsed.details.notes)
+    const patch: Partial<ChordAnnotation> = {
+      root: parsed.root,
+      quality: parsed.quality,
+      bass: parsed.bass,
+      voicing,
+      velocity: 0.72,
+      trackId: activeTrackId,
+    }
+    if (replaceSelected && selectedId) {
+      updateSelected(patch)
+      void playNotes(voicing, 1.1, midiVolume)
+      return
+    }
+    addChordAt(timeSelection?.start ?? currentTime, patch)
+    void playNotes(voicing, 1.1, midiVolume)
+    setActivePage('chords')
+  }, [
+    activeTrackId,
+    addChordAt,
+    currentTime,
+    hasAudio,
+    midiVolume,
+    pianoNotes,
+    selectedId,
+    timeSelection,
+    updateSelected,
+  ])
+
+  const chooseChordQuality = useCallback((root: string, quality: string) => {
+    const details = TonalChord.get(`${root}${quality}`)
+    const notes = pitchClassesToVoicing(details.notes)
+    setPianoNotes(notes)
+    void playNotes(notes, 1.1, midiVolume)
+  }, [midiVolume])
+
+  const addTrack = () => {
+    const track: ChordTrack = {
+      id: `track-${crypto.randomUUID()}`,
+      name: `和弦轨 ${tracks.length + 1}`,
+      volume: 0.72,
+      muted: false,
+      solo: false,
+      color: CHORD_COLORS[tracks.length % CHORD_COLORS.length],
+    }
+    setTracks((current) => [...current, track])
+    setActiveTrackId(track.id)
+  }
+
+  const updateTrack = (id: string, patch: Partial<ChordTrack>) => {
+    setTracks((current) => current.map((track) => track.id === id ? { ...track, ...patch } : track))
+  }
+
+  const toggleChordTrackPlayback = () => {
+    if (isChordPlayback) {
+      stopChordPlayback()
+      setIsChordPlayback(false)
+      return
+    }
+    setIsChordPlayback(true)
+    void playChordTimeline(chords, tracks, currentTime, () => setIsChordPlayback(false))
+  }
+
+  const playSingleChordTrack = (track: ChordTrack) => {
+    stopChordPlayback()
+    setIsChordPlayback(true)
+    void playChordTimeline(
+      chords,
+      [{ ...track, muted: false, solo: false }],
+      currentTime,
+      () => setIsChordPlayback(false),
+    )
+  }
 
   const undo = useCallback(() => {
     const previous = history.past.at(-1)
@@ -670,6 +859,12 @@ export default function App() {
     }, 450)
     return () => window.clearTimeout(saveTimer.current)
   }, [chords])
+
+  useEffect(() => {
+    localStorage.setItem('chordtag-tracks', JSON.stringify(tracks))
+  }, [tracks])
+
+  useEffect(() => () => stopChordPlayback(), [])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -814,7 +1009,9 @@ export default function App() {
     if (end - start < 0.08) return
     const range = { start, end }
     const intersecting = chords.filter((chord) =>
-      chord.start < range.end && chord.start + chord.duration > range.start,
+      (chord.trackId ?? tracks[0]?.id) === activeTrackId
+      && chord.start < range.end
+      && chord.start + chord.duration > range.start,
     )
     if (intersecting.length) {
       selectChordsInRange(range)
@@ -828,13 +1025,15 @@ export default function App() {
       quality: keyMode === 'minor' ? 'min' : 'maj',
       color: CHORD_COLORS[chords.length % CHORD_COLORS.length],
       confidence: 1,
+      trackId: activeTrackId,
+      velocity: 0.72,
     }
     commitAnnotations([...chords, chord])
     selectOnly(chord.id)
     setInspectorOpen(true)
   }
 
-  const beginMarquee = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const beginMarquee = (event: ReactPointerEvent<HTMLDivElement>, trackId: string) => {
     if (tool !== 'select' || event.button !== 0) return
     const target = event.target as HTMLElement
     if (target.closest('.chord-block') || target.closest('.lane-title')) return
@@ -843,11 +1042,11 @@ export default function App() {
     const start = Math.max(0, Math.min(timelineWidth, event.clientX - bounds.left))
     const additive = event.shiftKey || event.metaKey || event.ctrlKey
     let current = start
-    setMarquee({ start, current })
+    setMarquee({ start, current, trackId })
 
     const onMove = (moveEvent: PointerEvent) => {
       current = Math.max(0, Math.min(timelineWidth, moveEvent.clientX - bounds.left))
-      setMarquee({ start, current })
+      setMarquee({ start, current, trackId })
     }
     const onUp = () => {
       const from = Math.min(start, current) / pixelsPerSecond
@@ -855,6 +1054,7 @@ export default function App() {
       const matches = Math.abs(current - start) < 4
         ? []
         : chords
+          .filter((chord) => (chord.trackId ?? tracks[0]?.id) === trackId)
           .filter((chord) => chord.start < to && chord.start + chord.duration > from)
           .map((chord) => chord.id)
       const next = additive ? [...new Set([...selectedIds, ...matches])] : matches
@@ -885,7 +1085,10 @@ export default function App() {
     const pointerStart = event.clientX
     const original = chords
     const minDuration = grid.length > 1 ? Math.max(0.08, grid[1].time - grid[0].time) : 0.12
-    const ordered = [...chords].sort((a, b) => a.start - b.start)
+    const chordTrack = chord.trackId ?? tracks[0]?.id
+    const ordered = chords
+      .filter((item) => (item.trackId ?? tracks[0]?.id) === chordTrack)
+      .sort((a, b) => a.start - b.start)
     const chordIndex = ordered.findIndex((item) => item.id === chord.id)
     const previous = ordered[chordIndex - 1]
     const next = ordered[chordIndex + 1]
@@ -1011,6 +1214,13 @@ export default function App() {
         createdAt: new Date().toISOString(),
       },
       musicalContext: { tonic: keyRoot, mode: keyMode },
+      tracks: tracks.map((track) => ({
+        id: track.id,
+        name: track.name,
+        volume: track.volume,
+        muted: track.muted,
+        solo: track.solo,
+      })),
       timeline: {
         firstBeatOffset,
         tempoMap: tempoMarkers.map((marker) => ({
@@ -1031,6 +1241,9 @@ export default function App() {
         bass: chord.bass ?? null,
         romanNumeral: romanNumeral(keyRoot, keyMode, chord),
         confidence: chord.confidence ?? 1,
+        trackId: chord.trackId ?? tracks[0]?.id,
+        voicing: chord.voicing ?? annotationVoicing(chord),
+        velocity: chord.velocity ?? 0.72,
       })),
     }
     const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }))
@@ -1068,6 +1281,7 @@ export default function App() {
         </button>
         <div className="rail-nav">
           <button className={activePage === 'chords' ? 'active' : ''} onClick={() => setActivePage('chords')}><Music2 size={21} /><span>和弦</span></button>
+          <button className={activePage === 'finder' ? 'active' : ''} onClick={() => setActivePage('finder')}><Piano size={21} /><span>寻找</span></button>
         </div>
         <button className={`rail-bottom ${activePage === 'settings' ? 'active' : ''}`} onClick={() => setActivePage('settings')}><Settings2 size={21} /><span>设置</span></button>
       </aside>
@@ -1143,6 +1357,9 @@ export default function App() {
             </div>
 
             <div className="timeline-settings">
+              <button className="setting-chip track-add-chip" onClick={addTrack}>
+                <Plus size={15} />轨道 {tracks.length}
+              </button>
               <div className="tempo-wrapper">
                 <button className="setting-chip" onClick={() => setTempoOpen((open) => !open)}>
                   <Gauge size={16} />
@@ -1231,7 +1448,7 @@ export default function App() {
             onWheel={onWheel}
             ref={scrollerRef}
           >
-            <div className="timeline-surface" style={{ width: timelineWidth }}>
+            <div className="timeline-surface" style={{ height: timelineHeight, width: timelineWidth }}>
               <div className="ruler-row">
                 <button
                   aria-label="拖动首拍起点"
@@ -1285,30 +1502,60 @@ export default function App() {
                 )}
               </div>
 
+              {tracks.map((track) => {
+                const trackChords = chords.filter((chord) =>
+                  (chord.trackId ?? tracks[0]?.id) === track.id,
+                )
+                return (
               <div
-                className="chord-lane"
+                className={`chord-lane ${activeTrackId === track.id ? 'active' : ''}`}
+                key={track.id}
                 onDoubleClick={(event) => {
                   const bounds = event.currentTarget.getBoundingClientRect()
-                  addChordAt((event.clientX - bounds.left) / pixelsPerSecond)
+                  setActiveTrackId(track.id)
+                  addChordAt((event.clientX - bounds.left) / pixelsPerSecond, { trackId: track.id })
                 }}
-                onPointerDown={beginMarquee}
+                onPointerDown={(event) => beginMarquee(event, track.id)}
               >
-                <div className="lane-title">
+                <div className={`lane-title ${track.color}`} onPointerDown={() => setActiveTrackId(track.id)}>
                   <Music2 size={15} />
-                  <span>和弦</span>
-                  <small>{chords.length}</small>
+                  <span>{track.name}</span>
+                  <small>{trackChords.length}</small>
+                  <button
+                    aria-label={`${track.muted ? '取消静音' : '静音'} ${track.name}`}
+                    className={track.muted ? 'track-toggle active' : 'track-toggle'}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      updateTrack(track.id, { muted: !track.muted })
+                    }}
+                    type="button"
+                  >
+                    M
+                  </button>
+                  <button
+                    aria-label={`播放 ${track.name}`}
+                    className="track-play"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      playSingleChordTrack(track)
+                    }}
+                    type="button"
+                  >
+                    <Play size={10} fill="currentColor" />
+                  </button>
                   <button
                     aria-label="在播放头处添加和弦"
                     onClick={(event) => {
                       event.stopPropagation()
-                      addChordAt(currentTime)
+                      setActiveTrackId(track.id)
+                      addChordAt(currentTime, { trackId: track.id })
                     }}
                     type="button"
                   >
                     <Plus size={13} />
                   </button>
                 </div>
-                {chords.map((chord) => {
+                {trackChords.map((chord) => {
                   const numeral = romanNumeral(keyRoot, keyMode, chord)
                   return (
                     <motion.div
@@ -1355,6 +1602,19 @@ export default function App() {
                         onPointerDown={(event) => beginChordDrag(event, chord, 'end')}
                       />
                       <button
+                        aria-label={`试听 ${chordName(chord)}`}
+                        className="chord-audition"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          auditionChord(chord)
+                        }}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        title="试听和弦"
+                        type="button"
+                      >
+                        <Play size={11} fill="currentColor" />
+                      </button>
+                      <button
                         aria-label={`删除 ${chordName(chord)}`}
                         className="chord-delete"
                         onClick={(event) => {
@@ -1370,7 +1630,7 @@ export default function App() {
                     </motion.div>
                   )
                 })}
-                {marquee && (
+                {marquee?.trackId === track.id && (
                   <div
                     className="marquee-selection"
                     style={{
@@ -1380,6 +1640,8 @@ export default function App() {
                   />
                 )}
               </div>
+                )
+              })}
 
               <div className="timeline-grid" aria-hidden>
                 {visibleGrid.map((marker) => (
@@ -1393,6 +1655,56 @@ export default function App() {
               <div className="global-playhead" style={{ left: currentTime * pixelsPerSecond }} />
             </div>
           </div>
+
+          <section className={`piano-dock ${pianoExpanded ? 'expanded' : ''}`}>
+            <div className="piano-dock-header">
+              <div className="live-chord-name">
+                <Piano size={18} />
+                <div>
+                  <span>钢琴和弦输入</span>
+                  <strong>{pianoCandidates[0] || (pianoNotes.length ? '分析中…' : '点击琴键开始')}</strong>
+                </div>
+              </div>
+              <div className="piano-candidate-strip">
+                {pianoCandidates.slice(0, 5).map((candidate, index) => (
+                  <button
+                    className={index === 0 ? 'primary' : ''}
+                    key={candidate}
+                    onClick={() => insertDetectedChord(candidate, Boolean(selectedChord))}
+                    title={selectedChord ? `将所选和弦改为 ${candidate}` : `插入 ${candidate}`}
+                  >
+                    {candidate}<Plus size={11} />
+                  </button>
+                ))}
+              </div>
+              <div className="piano-dock-actions">
+                <button className={isChordPlayback ? 'active' : ''} onClick={toggleChordTrackPlayback}>
+                  {isChordPlayback ? <Square size={13} fill="currentColor" /> : <Play size={13} fill="currentColor" />}
+                  {isChordPlayback ? '停止 MIDI' : '播放和弦轨'}
+                </button>
+                <label><Volume2 size={14} /><input max="1" min="0" step="0.01" type="range" value={midiVolume} onChange={(event) => setMidiVolume(Number(event.target.value))} /></label>
+                <button className="dock-collapse" onClick={() => setPianoExpanded((value) => !value)}>{pianoExpanded ? '收起' : '展开'}</button>
+              </div>
+            </div>
+            {pianoExpanded && (
+              <>
+                <PianoKeyboard compact selectedNotes={pianoNotes} onToggle={togglePianoNote} />
+                <div className="track-mixer">
+                  {tracks.map((track) => (
+                    <div className={`track-mixer-strip ${activeTrackId === track.id ? 'active' : ''}`} key={track.id} onClick={() => setActiveTrackId(track.id)}>
+                      <span className={`track-color ${track.color}`} />
+                      <strong>{track.name}</strong>
+                      <button className={track.muted ? 'active' : ''} onClick={(event) => { event.stopPropagation(); updateTrack(track.id, { muted: !track.muted }) }}>M</button>
+                      <button className={track.solo ? 'active solo' : ''} onClick={(event) => { event.stopPropagation(); updateTrack(track.id, { solo: !track.solo }) }}>S</button>
+                      <button aria-label={`播放 ${track.name}`} onClick={(event) => { event.stopPropagation(); playSingleChordTrack(track) }}><Play size={10} fill="currentColor" /></button>
+                      <Volume2 size={13} />
+                      <input aria-label={`${track.name} 音量`} max="1" min="0" step="0.01" type="range" value={track.volume} onChange={(event) => updateTrack(track.id, { volume: Number(event.target.value) })} />
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </section>
 
           <div className="transport-bar">
             <div className="transport-left">
@@ -1467,6 +1779,20 @@ export default function App() {
               </div>
             )}
 
+            {activePage === 'finder' && (
+              <ChordFinder
+                candidates={pianoCandidates}
+                keyMode={keyMode}
+                keyRoot={keyRoot}
+                onAudition={auditionSymbol}
+                onChooseQuality={chooseChordQuality}
+                onClear={() => setPianoNotes([])}
+                onInsert={(symbol) => insertDetectedChord(symbol, false)}
+                onToggleNote={togglePianoNote}
+                selectedNotes={pianoNotes}
+              />
+            )}
+
             {activePage === 'settings' && (
               <>
                 <div className="feature-page-header">
@@ -1502,7 +1828,7 @@ export default function App() {
 
       <aside className="inspector-panel">
         {activePage === 'chords' && hasAudio ? (
-          <ChordInspector chord={selectedChord} keyMode={keyMode} keyRoot={keyRoot} onClose={() => setInspectorOpen(false)} onDelete={deleteSelected} onUpdate={updateSelected} />
+          <ChordInspector chord={selectedChord} keyMode={keyMode} keyRoot={keyRoot} onAudition={auditionChord} onClose={() => setInspectorOpen(false)} onDelete={deleteSelected} onUpdate={updateSelected} tracks={tracks} />
         ) : (
           <div className="side-page-summary">
             <span className="eyebrow">项目概览</span>
@@ -1527,7 +1853,7 @@ export default function App() {
               transition={{ type: 'spring', damping: 28, stiffness: 320 }}
             >
               <div className="sheet-handle" />
-              <ChordInspector chord={selectedChord} keyMode={keyMode} keyRoot={keyRoot} onClose={() => setInspectorOpen(false)} onDelete={deleteSelected} onUpdate={updateSelected} />
+              <ChordInspector chord={selectedChord} keyMode={keyMode} keyRoot={keyRoot} onAudition={auditionChord} onClose={() => setInspectorOpen(false)} onDelete={deleteSelected} onUpdate={updateSelected} tracks={tracks} />
             </motion.aside>
           </>
         )}

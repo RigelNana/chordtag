@@ -114,6 +114,15 @@ export function detectChordCandidates(notes: string[]) {
       return [`${base}/${bass}`, symbol]
     })
     .filter((symbol, index, candidates) => candidates.indexOf(symbol) === index)
+    .sort((a, b) => {
+      const complexity = (symbol: string) => {
+        const parsed = parseChordSymbol(symbol)
+        const alteredIntervals = parsed.details.intervals.filter((interval) => /[Ad]/.test(interval)).length
+        const explicitAlterations = (parsed.quality.match(/[#b]/g) ?? []).length
+        return alteredIntervals * 4 + explicitAlterations * 2 + parsed.quality.length / 100
+      }
+      return complexity(a) - complexity(b)
+    })
 }
 
 export function tonalChordName(chord: Pick<ChordAnnotation, 'root' | 'quality'>) {

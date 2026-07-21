@@ -64,7 +64,7 @@ export function PianoKeyboard({
             event.preventDefault()
             onToggle(note)
           }}
-          style={{ left: `${((afterWhite + 0.72) / WHITE_NOTES.length) * 100}%` }}
+          style={{ left: `${((afterWhite + 1) / WHITE_NOTES.length) * 100}%` }}
           type="button"
         >
           {!compact && <span>{Note.pitchClass(note)}</span>}

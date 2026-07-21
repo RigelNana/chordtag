@@ -80,6 +80,23 @@ export function chordName(chord: Pick<ChordAnnotation, 'root' | 'quality' | 'bas
   return `${chord.root}${qualityDisplay(chord.quality)}${chord.bass ? `/${chord.bass}` : ''}`
 }
 
+export function parseChordSymbol(symbol: string) {
+  const details = Chord.get(symbol)
+  const root = details.tonic || Note.pitchClass(details.notes[0] ?? 'C') || 'C'
+  const bassMatch = symbol.match(/\/([A-G](?:#|b)?)$/)
+  const withoutRoot = symbol.slice(root.length)
+  const qualityToken = bassMatch
+    ? withoutRoot.slice(0, -bassMatch[0].length)
+    : withoutRoot
+  const quality = qualityToken === '' || qualityToken === 'M' ? 'maj' : qualityToken
+  return {
+    root,
+    quality,
+    bass: bassMatch?.[1],
+    details,
+  }
+}
+
 export function tonalChordName(chord: Pick<ChordAnnotation, 'root' | 'quality'>) {
   return `${chord.root}${LEGACY_QUALITY[chord.quality] ?? chord.quality}`
 }

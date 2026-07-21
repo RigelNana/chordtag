@@ -946,11 +946,18 @@ input[type="range"] {
 .chord-lane {
   position: relative;
   z-index: 6;
-  height: 128px;
+  height: 96px;
   overflow: hidden;
+  border-bottom: 1px solid rgba(222, 216, 225, 0.8);
   background:
     linear-gradient(180deg, rgba(244, 239, 247, 0.7), rgba(255, 251, 255, 0.65)),
     repeating-linear-gradient(90deg, transparent 0, transparent 39px, rgba(80, 66, 92, 0.02) 40px);
+}
+
+.chord-lane.active {
+  background:
+    linear-gradient(180deg, rgba(237, 229, 250, 0.74), rgba(255, 251, 255, 0.68)),
+    repeating-linear-gradient(90deg, transparent 0, transparent 39px, rgba(80, 66, 92, 0.025) 40px);
 }
 
 .lane-title {
@@ -959,7 +966,7 @@ input[type="range"] {
   top: 0;
   left: 0;
   display: flex;
-  width: 128px;
+  width: 184px;
   height: 30px;
   align-items: center;
   gap: 5px;
@@ -986,18 +993,38 @@ input[type="range"] {
   font-size: 8px;
 }
 
+.lane-title > span {
+  max-width: 70px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .lane-title > button {
   display: grid;
   width: 20px;
   height: 20px;
-  margin-left: auto;
-  margin-right: 5px;
+  margin-left: 0;
+  margin-right: 3px;
   place-items: center;
   border: 0;
   border-radius: 7px;
   color: #fff;
   background: var(--primary);
   cursor: pointer;
+}
+
+.lane-title > .track-toggle {
+  margin-left: auto;
+  color: #6d6571;
+  background: #eee8f0;
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.lane-title > .track-toggle.active {
+  color: #fff;
+  background: #a13c48;
 }
 
 .lane-title > button:hover {
@@ -1007,9 +1034,9 @@ input[type="range"] {
 .chord-block {
   position: absolute;
   z-index: 8;
-  top: 40px;
+  top: 32px;
   display: flex;
-  height: 70px;
+  height: 56px;
   min-width: 18px;
   flex-direction: column;
   align-items: flex-start;
@@ -1128,14 +1155,40 @@ input[type="range"] {
   transition: opacity 120ms ease, transform 120ms ease, background 120ms ease;
 }
 
+.chord-audition {
+  position: absolute;
+  z-index: 4;
+  top: 4px;
+  right: 27px;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  color: #59418e;
+  background: rgba(250, 247, 255, 0.92);
+  box-shadow: 0 1px 4px rgba(54, 41, 75, 0.12);
+  cursor: pointer;
+  opacity: 0;
+  transform: scale(0.88);
+  transition: opacity 120ms ease, transform 120ms ease, background 120ms ease;
+}
+
 .chord-block:hover .chord-delete,
-.chord-block.selected .chord-delete {
+.chord-block.selected .chord-delete,
+.chord-block:hover .chord-audition,
+.chord-block.selected .chord-audition {
   opacity: 1;
   transform: scale(1);
 }
 
 .chord-delete:hover {
   background: #ffdfe4;
+}
+
+.chord-audition:hover {
+  background: #e9ddff;
 }
 
 .marquee-selection {
@@ -1874,6 +1927,656 @@ input[type="range"] {
   margin-top: 18px;
 }
 
+.piano-dock {
+  border-top: 1px solid #ded8e1;
+  background: #f9f6fb;
+}
+
+.piano-dock-header {
+  display: grid;
+  min-height: 48px;
+  grid-template-columns: minmax(150px, 0.7fr) minmax(180px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 11px;
+}
+
+.live-chord-name {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  color: #6650a4;
+}
+
+.live-chord-name > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.live-chord-name span {
+  color: #807783;
+  font-size: 8px;
+}
+
+.live-chord-name strong {
+  overflow: hidden;
+  color: #41364c;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.piano-candidate-strip {
+  display: flex;
+  min-width: 0;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.piano-candidate-strip button {
+  display: flex;
+  height: 28px;
+  align-items: center;
+  gap: 3px;
+  padding: 0 8px;
+  border: 1px solid #ddd4e5;
+  border-radius: 8px;
+  color: #625968;
+  background: #fff;
+  font-size: 9px;
+  font-weight: 750;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.piano-candidate-strip button.primary {
+  border-color: #8067bb;
+  color: #fff;
+  background: #6650a4;
+}
+
+.piano-dock-actions,
+.piano-dock-actions > button,
+.piano-dock-actions label {
+  display: flex;
+  align-items: center;
+}
+
+.piano-dock-actions {
+  gap: 5px;
+}
+
+.piano-dock-actions > button {
+  height: 30px;
+  gap: 4px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 9px;
+  color: #5e5663;
+  background: #eee8f0;
+  font-size: 8px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.piano-dock-actions > button.active {
+  color: #fff;
+  background: #9a3444;
+}
+
+.piano-dock-actions label {
+  gap: 4px;
+  color: #716978;
+}
+
+.piano-dock-actions input {
+  width: 54px;
+}
+
+.piano-keyboard {
+  position: relative;
+  height: 180px;
+  margin: 0 13px 14px;
+  overflow: hidden;
+  border: 1px solid #cfc6d2;
+  border-radius: 12px;
+  background: #28232c;
+  box-shadow: 0 8px 22px rgba(38, 29, 44, 0.12);
+  user-select: none;
+  touch-action: none;
+}
+
+.piano-keyboard.compact {
+  height: 104px;
+  margin-bottom: 8px;
+}
+
+.piano-white-keys {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+.piano-white-keys > button {
+  position: relative;
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  border-right: 1px solid #d7d1d9;
+  color: #665f69;
+  background: linear-gradient(180deg, #fff, #f4f0f4);
+  cursor: pointer;
+  box-shadow: inset 0 -5px 8px rgba(61, 50, 68, 0.06);
+  transition: background 100ms ease, transform 80ms ease;
+}
+
+.piano-white-keys > button:hover {
+  background: #f2ecff;
+}
+
+.piano-white-keys > button.selected {
+  color: #fff;
+  background: linear-gradient(180deg, #947bd0, #6c53aa);
+  box-shadow: inset 0 -5px 8px rgba(48, 34, 81, 0.14);
+}
+
+.piano-white-keys > button:active,
+.piano-black-key:active {
+  transform: translateY(2px);
+}
+
+.piano-white-keys span {
+  position: absolute;
+  right: 0;
+  bottom: 8px;
+  left: 0;
+  font-size: 9px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.piano-white-keys small {
+  margin-left: 1px;
+  font-size: 6px;
+  opacity: 0.6;
+}
+
+.piano-black-key {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  width: 4.2%;
+  height: 61%;
+  border: 1px solid #151218;
+  border-radius: 0 0 6px 6px;
+  color: #d7d0dc;
+  background: linear-gradient(180deg, #28242b, #100e12);
+  box-shadow: 0 4px 6px rgba(23, 17, 26, 0.36);
+  transform: translateX(-50%);
+  cursor: pointer;
+}
+
+.piano-black-key:hover {
+  background: linear-gradient(180deg, #463b53, #211a27);
+}
+
+.piano-black-key.selected {
+  color: #fff;
+  background: linear-gradient(180deg, #9b84d1, #563c91);
+  box-shadow: 0 3px 7px rgba(61, 40, 108, 0.38);
+}
+
+.piano-black-key span {
+  position: absolute;
+  right: 0;
+  bottom: 7px;
+  left: 0;
+  font-size: 7px;
+  text-align: center;
+}
+
+.track-mixer {
+  display: flex;
+  gap: 6px;
+  padding: 0 11px 9px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.track-mixer-strip {
+  display: grid;
+  min-width: 205px;
+  height: 34px;
+  grid-template-columns: 8px minmax(62px, 1fr) 24px 24px 14px 56px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border: 1px solid #ded6e1;
+  border-radius: 10px;
+  color: #625b67;
+  background: #fff;
+  cursor: pointer;
+}
+
+.track-mixer-strip.active {
+  border-color: #8e76c3;
+  background: #f7f2ff;
+}
+
+.track-mixer-strip strong {
+  overflow: hidden;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.track-mixer-strip button {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: #6d6572;
+  background: #eee9ef;
+  font-size: 8px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.track-mixer-strip button.active {
+  color: #fff;
+  background: #a13c48;
+}
+
+.track-mixer-strip button.solo {
+  background: #89671b;
+}
+
+.track-mixer-strip input {
+  width: 56px;
+}
+
+.track-color {
+  width: 7px;
+  height: 20px;
+  border-radius: 5px;
+}
+
+.track-color.lavender { background: #9b81d1; }
+.track-color.mint { background: #63a991; }
+.track-color.peach { background: #d58961; }
+.track-color.sky { background: #669ac2; }
+.track-color.rose { background: #c16d88; }
+
+.finder-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.finder-heading {
+  margin-bottom: 2px;
+}
+
+.finder-piano-card,
+.harmony-main-card,
+.harmony-facts-card,
+.chord-catalog-card {
+  border: 1px solid rgba(202, 196, 208, 0.72);
+  border-radius: 20px;
+  background: rgba(255, 251, 255, 0.92);
+  box-shadow: 0 7px 25px rgba(55, 40, 68, 0.045);
+}
+
+.finder-piano-card {
+  padding: 17px 17px 10px;
+}
+
+.finder-live-header,
+.harmony-symbol,
+.catalog-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.finder-live-header > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.finder-live-header strong {
+  color: #4f3b78;
+  font-size: 21px;
+  letter-spacing: -0.03em;
+}
+
+.finder-live-header small {
+  color: #8a818d;
+  font-size: 9px;
+}
+
+.finder-piano-card .piano-keyboard {
+  margin: 14px 0 11px;
+}
+
+.finder-candidates {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.finder-candidates > button {
+  display: grid;
+  min-width: 92px;
+  height: 42px;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  padding: 0 9px;
+  border: 1px solid #ddd4e3;
+  border-radius: 11px;
+  color: #514a56;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.finder-candidates > button span {
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.finder-candidates > button small {
+  grid-area: 2 / 1;
+  color: #958c98;
+  font-size: 7px;
+}
+
+.finder-candidates > button svg {
+  grid-area: 1 / 2 / 3;
+}
+
+.finder-candidates > button.primary {
+  border-color: #7d64b8;
+  color: #fff;
+  background: #6650a4;
+}
+
+.finder-candidates > button.primary small {
+  color: #ddd1fb;
+}
+
+.finder-placeholder {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #8a818e;
+  font-size: 9px;
+}
+
+.harmony-analysis-grid {
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 14px;
+}
+
+.harmony-main-card,
+.harmony-facts-card,
+.chord-catalog-card {
+  padding: 18px;
+}
+
+.harmony-symbol h2,
+.catalog-heading h2 {
+  margin: 3px 0 0;
+  color: #3e324d;
+  font-size: 23px;
+}
+
+.harmony-symbol button {
+  display: flex;
+  height: 36px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  color: #fff;
+  background: #6650a4;
+  font-size: 9px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.analysis-note-row {
+  display: flex;
+  gap: 7px;
+  margin-top: 18px;
+  overflow-x: auto;
+}
+
+.analysis-note-row > span {
+  display: flex;
+  min-width: 54px;
+  height: 58px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 13px;
+  color: #5b447f;
+  background: #f0e8ff;
+}
+
+.analysis-note-row strong {
+  font-size: 14px;
+}
+
+.analysis-note-row small {
+  color: #88789d;
+  font-size: 7px;
+}
+
+.harmony-facts-card {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.harmony-facts-card > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  padding: 9px;
+  border-radius: 11px;
+  background: #f4f0f5;
+}
+
+.harmony-facts-card span {
+  color: #89818c;
+  font-size: 7px;
+}
+
+.harmony-facts-card strong {
+  overflow: hidden;
+  color: #514a56;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.catalog-heading .search-field {
+  width: 250px;
+}
+
+.catalog-root-row {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 5px;
+  margin: 15px 0 10px;
+}
+
+.catalog-root-row button {
+  height: 30px;
+  border: 1px solid #ded7e1;
+  border-radius: 8px;
+  color: #665f6a;
+  background: #fff;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.catalog-root-row button.selected {
+  border-color: #6650a4;
+  color: #fff;
+  background: #6650a4;
+}
+
+.catalog-filters {
+  align-items: center;
+}
+
+.catalog-filters > span {
+  margin-left: auto;
+  color: #8e8691;
+  font-size: 8px;
+}
+
+.catalog-grid {
+  display: grid;
+  max-height: 310px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  overflow: hidden auto;
+  scrollbar-width: thin;
+}
+
+.catalog-grid > button {
+  display: grid;
+  min-width: 0;
+  min-height: 49px;
+  grid-template-columns: 18px 1fr 14px;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border: 1px solid #e2dbe4;
+  border-radius: 11px;
+  color: #625a67;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.catalog-grid > button:hover {
+  border-color: #a893cf;
+  color: #5d4494;
+  background: #f6f0ff;
+}
+
+.catalog-grid > button span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.catalog-grid strong,
+.catalog-grid small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.catalog-grid strong {
+  font-size: 9px;
+}
+
+.catalog-grid small {
+  color: #928a95;
+  font-size: 7px;
+}
+
+.inspector-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.audition-button {
+  display: flex;
+  height: 30px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 9px;
+  color: #fff;
+  background: #6650a4;
+  font-size: 8px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.midi-editor-section > label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: #766e7a;
+  font-size: 9px;
+}
+
+.timing-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  margin: 9px 0;
+}
+
+.timing-fields label,
+.velocity-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #79717c;
+  font-size: 8px;
+}
+
+.timing-fields input {
+  width: 100%;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid #ded6e2;
+  border-radius: 9px;
+  background: #fff;
+  font-size: 10px;
+}
+
+.velocity-field > span {
+  display: flex;
+  justify-content: space-between;
+}
+
+.voicing-preview {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+  overflow-x: auto;
+}
+
+.voicing-preview span {
+  padding: 4px 6px;
+  border-radius: 7px;
+  color: #5d4890;
+  background: #eee6ff;
+  font-size: 8px;
+  font-weight: 700;
+}
+
 .inspector-panel {
   grid-area: 2 / 3;
   overflow: hidden auto;
@@ -2326,6 +3029,19 @@ input[type="range"] {
   .transport-bar {
     grid-template-columns: 1fr 1fr;
   }
+
+  .catalog-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .piano-dock-header {
+    grid-template-columns: minmax(140px, 0.7fr) 1fr;
+  }
+
+  .piano-dock-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
 }
 
 @media (max-width: 900px) {
@@ -2410,6 +3126,10 @@ input[type="range"] {
   .feature-page {
     min-height: calc(100vh - 80px);
   }
+
+  .harmony-analysis-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 640px) {
@@ -2446,7 +3166,7 @@ input[type="range"] {
     display: grid;
     width: 100%;
     height: 66px;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     padding: 5px 8px;
     border-top: 1px solid #ddd6e0;
     border-right: 0;
@@ -2564,12 +3284,12 @@ input[type="range"] {
   }
 
   .chord-lane {
-    height: 118px;
+    height: 90px;
   }
 
   .chord-block {
-    top: 37px;
-    height: 65px;
+    top: 31px;
+    height: 52px;
   }
 
   .transport-bar {
@@ -2662,6 +3382,67 @@ input[type="range"] {
 
   .note-item {
     grid-template-columns: 90px 1fr 32px;
+  }
+
+  .piano-dock-header {
+    grid-template-columns: 1fr auto;
+  }
+
+  .piano-candidate-strip {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .piano-dock-actions {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    justify-content: space-between;
+  }
+
+  .piano-dock-actions > button {
+    padding-inline: 7px;
+  }
+
+  .piano-keyboard.compact {
+    height: 88px;
+    margin-inline: 8px;
+  }
+
+  .track-mixer {
+    padding-inline: 8px;
+  }
+
+  .finder-piano-card,
+  .harmony-main-card,
+  .harmony-facts-card,
+  .chord-catalog-card {
+    padding: 13px;
+    border-radius: 16px;
+  }
+
+  .finder-live-header {
+    align-items: flex-start;
+  }
+
+  .finder-piano-card .piano-keyboard {
+    height: 145px;
+  }
+
+  .catalog-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .catalog-heading .search-field {
+    width: 100%;
+  }
+
+  .catalog-root-row {
+    grid-template-columns: repeat(6, 1fr);
+  }
+
+  .catalog-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

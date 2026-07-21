@@ -11,9 +11,21 @@ export interface ChordAnnotation {
   bass?: string
   color: ChordColor
   confidence?: number
+  trackId?: string
+  voicing?: string[]
+  velocity?: number
 }
 
 export type ChordColor = 'lavender' | 'mint' | 'peach' | 'sky' | 'rose'
+
+export interface ChordTrack {
+  id: string
+  name: string
+  volume: number
+  muted: boolean
+  solo: boolean
+  color: ChordColor
+}
 
 export interface TempoMarker {
   id: string

@@ -115,15 +115,8 @@ export function romanNumeral(
   const root = Note.get(chord.root)
   if (!scale.length || root.chroma === undefined) return '—'
 
-  const letterDegree = scale.findIndex((note) => Note.get(note).letter === root.letter)
-  const nearestDegree = scale
-    .map((note, index) => {
-      const chroma = Note.chroma(note) ?? 0
-      const delta = ((root.chroma! - chroma + 18) % 12) - 6
-      return { index, distance: Math.abs(delta) }
-    })
-    .sort((a, b) => a.distance - b.distance || a.index - b.index)[0]?.index ?? 0
-  const degreeIndex = letterDegree >= 0 ? letterDegree : nearestDegree
+  const degreeIndex = scale.findIndex((note) => Note.get(note).letter === root.letter)
+  if (degreeIndex < 0) return '—'
   const degreeChroma = Note.chroma(scale[degreeIndex]) ?? 0
   const alteration = ((root.chroma - degreeChroma + 18) % 12) - 6
   const accidental = alteration > 0

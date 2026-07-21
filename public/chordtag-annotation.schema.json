@@ -181,7 +181,19 @@
             "required": ["tonic", "mode", "startBar"],
             "properties": {
               "tonic": { "type": "string", "pattern": "^[A-G](?:#|b)?$" },
-              "mode": { "type": "string", "minLength": 1 },
+              "mode": {
+                "enum": [
+                  "major",
+                  "minor",
+                  "dorian",
+                  "phrygian",
+                  "lydian",
+                  "mixolydian",
+                  "locrian",
+                  "harmonic minor",
+                  "melodic minor"
+                ]
+              },
               "startBar": { "type": "integer", "minimum": 1 }
             }
           },
@@ -199,7 +211,22 @@
               "classification": { "type": "string" },
               "diatonic": { "type": "boolean" },
               "chordToneCoverage": { "type": "number", "minimum": 0, "maximum": 1 },
-              "borrowedFrom": { "type": "array", "items": { "type": "string" } },
+              "borrowedFrom": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "major",
+                    "minor",
+                    "dorian",
+                    "phrygian",
+                    "lydian",
+                    "mixolydian",
+                    "locrian",
+                    "harmonic minor",
+                    "melodic minor"
+                  ]
+                }
+              },
               "secondaryTarget": { "type": ["string", "null"] }
             }
           }

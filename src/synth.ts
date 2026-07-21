@@ -1,27 +1,41 @@
-import * as Tone from 'tone'
 import { Midi, Note } from '@tonaljs/tonal'
 import type { ChordAnnotation, ChordTrack } from './types'
 import { chordNotes } from './music'
 
-const synths = new Map<string, Tone.PolySynth>()
+let toneModule: Promise<typeof import('tone')> | undefined
 let stopTimer: number | undefined
+
+function loadTone() {
+  toneModule ??= import('tone')
+  return toneModule
+}
 
 function gainToDecibels(value: number) {
   return 20 * Math.log10(Math.max(0.001, Math.min(1, value)))
 }
 
-function getSynth(id: string, volume: number) {
+async function createSynth(volume: number) {
+  const Tone = await loadTone()
+  const synth = new Tone.PolySynth(Tone.Synth, {
+    oscillator: { type: 'triangle' },
+    envelope: {
+      attack: 0.015,
+      decay: 0.16,
+      sustain: 0.34,
+      release: 0.7,
+    },
+  }).toDestination()
+  synth.volume.value = gainToDecibels(volume)
+  return synth
+}
+
+type SynthInstance = Awaited<ReturnType<typeof createSynth>>
+const synths = new Map<string, SynthInstance>()
+
+async function getSynth(id: string, volume: number) {
   let synth = synths.get(id)
   if (!synth) {
-    synth = new Tone.PolySynth(Tone.Synth, {
-      oscillator: { type: 'triangle' },
-      envelope: {
-        attack: 0.015,
-        decay: 0.16,
-        sustain: 0.34,
-        release: 0.7,
-      },
-    }).toDestination()
+    synth = await createSynth(volume)
     synths.set(id, synth)
   }
   synth.volume.value = gainToDecibels(volume)
@@ -57,8 +71,9 @@ export async function playNotes(
   velocity = 0.72,
 ) {
   if (!notes.length) return
+  const Tone = await loadTone()
   await Tone.start()
-  const synth = getSynth(channel, volume)
+  const synth = await getSynth(channel, volume)
   synth.triggerAttackRelease(notes, Math.max(0.06, duration), Tone.now() + 0.025, velocity)
 }
 
@@ -88,6 +103,7 @@ export async function playChordTimeline(
   onEnded?: () => void,
 ) {
   stopChordPlayback()
+  const Tone = await loadTone()
   await Tone.start()
   const hasSolo = tracks.some((track) => track.solo)
   const availableTracks = tracks.filter((track) => !track.muted && (!hasSolo || track.solo))
@@ -102,13 +118,17 @@ export async function playChordTimeline(
   }
 
   const now = Tone.now() + 0.05
+  const trackSynths = new Map(await Promise.all(availableTracks.map(async (track) => (
+    [track.id, await getSynth(track.id, track.volume)] as const
+  ))))
   let finalTime = 0
   events.forEach((chord) => {
     const track = trackMap.get(chord.trackId ?? fallbackTrack?.id ?? '')
     if (!track) return
     const offset = Math.max(0, chord.start - fromTime)
     const elapsedDuration = Math.max(0.08, chord.duration - Math.max(0, fromTime - chord.start))
-    const synth = getSynth(track.id, track.volume)
+    const synth = trackSynths.get(track.id)
+    if (!synth) return
     synth.triggerAttackRelease(
       annotationVoicing(chord),
       elapsedDuration,
